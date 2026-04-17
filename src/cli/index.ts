@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { DaemonNotRunningError, AppiumAgentError } from '../shared/errors.js';
 import { registerStartDaemon } from './commands/start-daemon.command.js';
-import { registerStopDaemon } from './commands/stop-daemon.command.js';
+import { registerKillDaemon } from './commands/kill-daemon.command.js';
 import { registerConnect } from './commands/connect.command.js';
 import { registerCloseApp } from './commands/close-app.command.js';
 import { registerFindElement } from './commands/find-element.command.js';
@@ -10,6 +10,9 @@ import { registerClick } from './commands/click.command.js';
 import { registerType } from './commands/type.command.js';
 import { registerPageSource } from './commands/page-source.command.js';
 import { registerReconnect } from './commands/reconnect.command.js';
+import { registerActivateApp } from './commands/activate-app.command.js';
+import { registerTerminateApp } from './commands/terminate-app.command.js';
+import { registerTakeScreenshot } from './commands/take-screenshot.command.js';
 
 const program = new Command();
 
@@ -19,7 +22,7 @@ program
   .version('0.1.0');
 
 registerStartDaemon(program);
-registerStopDaemon(program);
+registerKillDaemon(program);
 registerConnect(program);
 registerCloseApp(program);
 registerFindElement(program);
@@ -27,6 +30,9 @@ registerClick(program);
 registerType(program);
 registerPageSource(program);
 registerReconnect(program);
+registerActivateApp(program);
+registerTerminateApp(program);
+registerTakeScreenshot(program);
 
 // Global error handler
 async function run() {

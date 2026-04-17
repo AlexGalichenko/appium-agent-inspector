@@ -119,11 +119,36 @@ export const TypeRequestSchema = ElementTargetSchema.and(
 export type TypeRequest = z.infer<typeof TypeRequestSchema>;
 
 // ---------------------------------------------------------------------------
+// App management requests
+// ---------------------------------------------------------------------------
+
+export const ActivateAppRequestSchema = z.object({
+  appId: z.string().min(1),
+});
+
+export type ActivateAppRequest = z.infer<typeof ActivateAppRequestSchema>;
+
+export const TerminateAppRequestSchema = z.object({
+  appId: z.string().min(1),
+});
+
+export type TerminateAppRequest = z.infer<typeof TerminateAppRequestSchema>;
+
+// ---------------------------------------------------------------------------
 // Page source response
 // ---------------------------------------------------------------------------
 
 export interface PageSourceResponse {
   source: string;
+  capturedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Screenshot response
+// ---------------------------------------------------------------------------
+
+export interface ScreenshotResponse {
+  data: string; // base64-encoded PNG
   capturedAt: string;
 }
 

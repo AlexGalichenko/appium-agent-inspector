@@ -39,7 +39,12 @@ function makeSessionManager(overrides: Partial<Record<keyof SessionManager, unkn
   return {
     startSession: vi.fn().mockResolvedValue(SESSION_META),
     endSession: vi.fn().mockResolvedValue(undefined),
-    getDriver: vi.fn().mockReturnValue({ getPageSource: vi.fn().mockResolvedValue('<xml/>') }),
+    getDriver: vi.fn().mockReturnValue({
+    getPageSource: vi.fn().mockResolvedValue('<xml/>'),
+    takeScreenshot: vi.fn().mockResolvedValue('base64png=='),
+    activateApp: vi.fn().mockResolvedValue(undefined),
+    terminateApp: vi.fn().mockResolvedValue(true),
+  }),
     getSessionMeta: vi.fn().mockReturnValue(SESSION_META),
     isActive: vi.fn().mockReturnValue(false),
     getSessionId: vi.fn().mockReturnValue('sess-1'),
@@ -342,6 +347,121 @@ describe('buildServer', () => {
     });
   });
 
+  describe('GET /actions/screenshot', () => {
+    it('returns base64 screenshot data and capturedAt', async () => {
+      const res = await server.inject({ method: 'GET', url: '/actions/screenshot' });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.data.data).toBe('base64png==');
+      expect(body.data.capturedAt).toBeTruthy();
+    });
+
+    it('returns 409 when no session is active', async () => {
+      vi.mocked(sessionManager.getDriver).mockImplementationOnce(() => {
+        throw new SessionNotActiveError();
+      });
+      const res = await server.inject({ method: 'GET', url: '/actions/screenshot' });
+      expect(res.statusCode).toBe(409);
+      expect(JSON.parse(res.body).error.code).toBe('SESSION_NOT_ACTIVE');
+    });
+  });
+
+  describe('POST /actions/activate-app', () => {
+    it('activates the app and returns 200', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/activate-app',
+        payload: { appId: 'com.example.app' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'App activated' } });
+      const driver = sessionManager.getDriver();
+      expect(driver.activateApp).toHaveBeenCalledWith('com.example.app');
+    });
+
+    it('returns 400 for missing appId', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/activate-app',
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 400 for empty appId', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/activate-app',
+        payload: { appId: '' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 409 when no session is active', async () => {
+      vi.mocked(sessionManager.getDriver).mockImplementationOnce(() => {
+        throw new SessionNotActiveError();
+      });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/activate-app',
+        payload: { appId: 'com.example.app' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(JSON.parse(res.body).error.code).toBe('SESSION_NOT_ACTIVE');
+    });
+  });
+
+  describe('POST /actions/terminate-app', () => {
+    it('terminates the app and returns terminated: true when app was running', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/terminate-app',
+        payload: { appId: 'com.example.app' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { terminated: true } });
+      const driver = sessionManager.getDriver();
+      expect(driver.terminateApp).toHaveBeenCalledWith('com.example.app');
+    });
+
+    it('returns terminated: false when app was not running', async () => {
+      const driver = sessionManager.getDriver();
+      vi.mocked(driver.terminateApp).mockResolvedValueOnce(false);
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/terminate-app',
+        payload: { appId: 'com.example.app' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data.terminated).toBe(false);
+    });
+
+    it('returns 400 for missing appId', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/terminate-app',
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 409 when no session is active', async () => {
+      vi.mocked(sessionManager.getDriver).mockImplementationOnce(() => {
+        throw new SessionNotActiveError();
+      });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/terminate-app',
+        payload: { appId: 'com.example.app' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(JSON.parse(res.body).error.code).toBe('SESSION_NOT_ACTIVE');
+    });
+  });
+
   // ── Error handler ─────────────────────────────────────────────────────────
 
   describe('global error handler', () => {
@@ -361,7 +481,9 @@ describe('buildServer', () => {
         },
       });
       expect(res.statusCode).toBe(500);
-      expect(JSON.parse(res.body).error.code).toBe('INTERNAL_ERROR');
+      const body = JSON.parse(res.body);
+      expect(body.error.code).toBe('INTERNAL_ERROR');
+      expect(body.error.message).toBe('unexpected boom');
     });
   });
 });

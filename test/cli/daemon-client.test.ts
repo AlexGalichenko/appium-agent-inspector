@@ -147,6 +147,53 @@ describe('DaemonClient', () => {
     });
   });
 
+  describe('takeScreenshot', () => {
+    it('sends GET /actions/screenshot and returns base64 data', async () => {
+      const client = DaemonClient.default();
+      fetchMock.mockResolvedValueOnce(
+        makeOkResponse({ data: 'base64png==', capturedAt: '2026-01-01T00:00:00.000Z' }),
+      );
+      const result = await client.takeScreenshot();
+      expect(result.data).toBe('base64png==');
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/actions/screenshot'),
+        expect.objectContaining({ method: 'GET' }),
+      );
+    });
+  });
+
+  describe('activateApp', () => {
+    it('sends POST /actions/activate-app with appId', async () => {
+      const client = DaemonClient.default();
+      fetchMock.mockResolvedValueOnce(makeOkResponse({ message: 'App activated' }));
+      await client.activateApp({ appId: 'com.example.app' });
+      const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain('/actions/activate-app');
+      expect(opts.method).toBe('POST');
+      expect(JSON.parse(opts.body as string)).toEqual({ appId: 'com.example.app' });
+    });
+  });
+
+  describe('terminateApp', () => {
+    it('sends POST /actions/terminate-app and returns true when app was running', async () => {
+      const client = DaemonClient.default();
+      fetchMock.mockResolvedValueOnce(makeOkResponse({ terminated: true }));
+      const result = await client.terminateApp({ appId: 'com.example.app' });
+      expect(result).toBe(true);
+      const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toContain('/actions/terminate-app');
+      expect(opts.method).toBe('POST');
+      expect(JSON.parse(opts.body as string)).toEqual({ appId: 'com.example.app' });
+    });
+
+    it('returns false when app was not running', async () => {
+      const client = DaemonClient.default();
+      fetchMock.mockResolvedValueOnce(makeOkResponse({ terminated: false }));
+      const result = await client.terminateApp({ appId: 'com.example.app' });
+      expect(result).toBe(false);
+    });
+  });
+
   describe('getPageSource', () => {
     it('sends GET /actions/page-source and returns source', async () => {
       const client = DaemonClient.default();

@@ -15,11 +15,35 @@ import {
 } from '../shared/constants.js';
 import type { Logger } from '../shared/logger.js';
 
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
 export class SessionManager {
   private driver: Awaited<ReturnType<typeof remote>> | null = null;
   private sessionMeta: StartSessionResponse | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly logger: Logger) {}
+
+  private startHeartbeat(): void {
+    this.heartbeatTimer = setInterval(() => {
+      void (async () => {
+        if (this.driver === null) return;
+        try {
+          await this.driver.getTimeouts();
+          this.logger.debug({ sessionId: this.sessionMeta?.sessionId }, 'Heartbeat ok');
+        } catch (err) {
+          this.logger.warn({ err, sessionId: this.sessionMeta?.sessionId }, 'Heartbeat failed');
+        }
+      })();
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
 
   async startSession(req: StartSessionRequest): Promise<StartSessionResponse> {
     if (this.driver !== null) {
@@ -48,6 +72,7 @@ export class SessionManager {
 
     this.driver = driver;
     this.sessionMeta = meta;
+    this.startHeartbeat();
 
     this.logger.info({ sessionId: meta.sessionId }, 'Session started');
     return meta;
@@ -59,6 +84,8 @@ export class SessionManager {
     }
 
     this.logger.info({ sessionId: this.sessionMeta?.sessionId }, 'Ending session');
+
+    this.stopHeartbeat();
 
     try {
       await this.driver.deleteSession();

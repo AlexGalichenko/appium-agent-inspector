@@ -1,13 +1,16 @@
 import { DaemonNotRunningError } from '../shared/errors.js';
 import type {
+  ActivateAppRequest,
   ApiResponse,
   ClickRequest,
   ElementReference,
   FindElementRequest,
   FindElementResponse,
   PageSourceResponse,
+  ScreenshotResponse,
   StartSessionRequest,
   StartSessionResponse,
+  TerminateAppRequest,
   TypeRequest,
 } from '../shared/types.js';
 import { DAEMON_PORT } from '../shared/constants.js';
@@ -76,6 +79,19 @@ export class DaemonClient {
 
   async type(req: TypeRequest): Promise<void> {
     await this.request<{ message: string }>('POST', '/actions/type', req);
+  }
+
+  async activateApp(req: ActivateAppRequest): Promise<void> {
+    await this.request<{ message: string }>('POST', '/actions/activate-app', req);
+  }
+
+  async terminateApp(req: TerminateAppRequest): Promise<boolean> {
+    const result = await this.request<{ terminated: boolean }>('POST', '/actions/terminate-app', req);
+    return result.terminated;
+  }
+
+  async takeScreenshot(): Promise<ScreenshotResponse> {
+    return this.request<ScreenshotResponse>('GET', '/actions/screenshot');
   }
 
   async getPageSource(): Promise<PageSourceResponse> {

@@ -5,7 +5,12 @@ import {
   SessionNotActiveError,
   StaleElementError,
 } from '../../shared/errors.js';
-import { ClickRequestSchema, TypeRequestSchema } from '../../shared/types.js';
+import {
+  ActivateAppRequestSchema,
+  ClickRequestSchema,
+  TerminateAppRequestSchema,
+  TypeRequestSchema,
+} from '../../shared/types.js';
 import type { SessionManager } from '../session-manager.js';
 import type { ElementRegistry } from '../element-registry.js';
 
@@ -71,6 +76,87 @@ export async function actionRoutes(
       return reply.send({ ok: true, data: { message: 'Text entered' } });
     } catch (err) {
       return handleActionError(err, reply);
+    }
+  });
+
+  // POST /actions/activate-app
+  fastify.post('/actions/activate-app', async (request, reply) => {
+    const parseResult = ActivateAppRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: parseResult.error.flatten(),
+        },
+      });
+    }
+
+    try {
+      const driver = sessionManager.getDriver();
+      await driver.activateApp(parseResult.data.appId);
+      return reply.send({ ok: true, data: { message: 'App activated' } });
+    } catch (err) {
+      if (err instanceof SessionNotActiveError) {
+        return reply.status(409).send({
+          ok: false,
+          error: { code: err.code, message: err.message },
+        });
+      }
+      throw err;
+    }
+  });
+
+  // POST /actions/terminate-app
+  fastify.post('/actions/terminate-app', async (request, reply) => {
+    const parseResult = TerminateAppRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: parseResult.error.flatten(),
+        },
+      });
+    }
+
+    try {
+      const driver = sessionManager.getDriver();
+      const terminated = await driver.terminateApp(parseResult.data.appId);
+      return reply.send({ ok: true, data: { terminated } });
+    } catch (err) {
+      if (err instanceof SessionNotActiveError) {
+        return reply.status(409).send({
+          ok: false,
+          error: { code: err.code, message: err.message },
+        });
+      }
+      throw err;
+    }
+  });
+
+  // GET /actions/screenshot
+  fastify.get('/actions/screenshot', async (_request, reply) => {
+    try {
+      const driver = sessionManager.getDriver();
+      const data = await driver.takeScreenshot();
+      return reply.send({
+        ok: true,
+        data: {
+          data,
+          capturedAt: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      if (err instanceof SessionNotActiveError) {
+        return reply.status(409).send({
+          ok: false,
+          error: { code: err.code, message: err.message },
+        });
+      }
+      throw err;
     }
   });
 

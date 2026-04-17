@@ -81,8 +81,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       ok: false,
       error: {
         code: 'INTERNAL_ERROR',
-        message: 'An unexpected error occurred',
-        details: process.env['NODE_ENV'] !== 'production' ? (error instanceof Error ? error.message : String(error)) : undefined,
+        message: error instanceof Error ? error.message : String(error),
       },
     });
   });

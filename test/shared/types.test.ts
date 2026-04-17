@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ActivateAppRequestSchema,
   AppiumCapabilitiesSchema,
   AppiumServerConfigSchema,
   ClickRequestSchema,
   FindElementRequestSchema,
   LocatorStrategySchema,
   StartSessionRequestSchema,
+  TerminateAppRequestSchema,
   TypeRequestSchema,
 } from '../../src/shared/types.js';
 
@@ -183,6 +185,34 @@ describe('ClickRequestSchema', () => {
   it('rejects missing selector in strategy form', () => {
     const result = ClickRequestSchema.safeParse({ strategy: 'xpath' });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('ActivateAppRequestSchema', () => {
+  it('accepts a valid appId', () => {
+    expect(ActivateAppRequestSchema.safeParse({ appId: 'com.example.app' }).success).toBe(true);
+  });
+
+  it('rejects missing appId', () => {
+    expect(ActivateAppRequestSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('rejects empty appId', () => {
+    expect(ActivateAppRequestSchema.safeParse({ appId: '' }).success).toBe(false);
+  });
+});
+
+describe('TerminateAppRequestSchema', () => {
+  it('accepts a valid appId', () => {
+    expect(TerminateAppRequestSchema.safeParse({ appId: 'com.example.app' }).success).toBe(true);
+  });
+
+  it('rejects missing appId', () => {
+    expect(TerminateAppRequestSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('rejects empty appId', () => {
+    expect(TerminateAppRequestSchema.safeParse({ appId: '' }).success).toBe(false);
   });
 });
 

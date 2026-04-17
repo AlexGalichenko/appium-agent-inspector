@@ -1,6 +1,6 @@
 ---
 name: appium-agent
-description: Interact with a running iOS or Android app via the appium-agent-inspector CLI daemon. Use this skill whenever the user wants to automate or inspect a mobile app — tapping elements, typing text, getting the page source, finding UI elements, starting or stopping the app, or checking session status. Trigger on phrases like "click on", "tap", "type into", "find element", "get page source", "start the app", "close the app", "launch", "interact with the app", "inspect the UI", or anything that involves controlling a device screen. Also trigger proactively when the user describes a multi-step mobile UI flow to automate.
+description: Interact with a running iOS or Android app via the appium-agent-inspector CLI daemon. Use this skill whenever the user wants to automate or inspect a mobile app — tapping elements, typing text, getting the page source, taking screenshots, finding UI elements, starting or stopping the app, activating or terminating apps, or checking session status. Trigger on phrases like "click on", "tap", "type into", "find element", "get page source", "take a screenshot", "capture screen", "screenshot", "start the app", "close the app", "activate app", "terminate app", "launch", "interact with the app", "inspect the UI", or anything that involves controlling a device screen. Also trigger proactively when the user describes a multi-step mobile UI flow to automate.
 ---
 
 # Appium Agent
@@ -111,7 +111,35 @@ node dist/cli/index.js page-source
 node dist/cli/index.js page-source --raw > /tmp/page.xml
 ```
 
-### 5. Close the app
+**Take a screenshot:**
+```bash
+# Save PNG to a file (preferred for agents — avoids large base64 in stdout)
+node dist/cli/index.js take-screenshot --output /tmp/screen.png
+
+# Print raw base64 to stdout (useful for piping)
+node dist/cli/index.js take-screenshot
+```
+
+### 5. Activate or terminate an app
+
+These commands operate on any app by its identifier — they do **not** close the Appium session.
+
+**Bring an app to the foreground:**
+```bash
+# iOS (bundle ID)
+node dist/cli/index.js activate-app com.example.app
+
+# Android (package name)
+node dist/cli/index.js activate-app com.example.app
+```
+
+**Terminate a running app:**
+```bash
+node dist/cli/index.js terminate-app com.example.app
+# → "App terminated: com.example.app"  (or "App was not running: ..." if already stopped)
+```
+
+### 6. Close the app and end the session
 
 ```bash
 node dist/cli/index.js close-app
@@ -119,10 +147,10 @@ node dist/cli/index.js close-app
 
 This deletes the Appium session and clears all stored element references.
 
-### 6. Stop the daemon (optional)
+### 7. Kill the daemon (optional)
 
 ```bash
-node dist/cli/index.js daemon:stop
+node dist/cli/index.js daemon:kill
 ```
 
 ## Element references
