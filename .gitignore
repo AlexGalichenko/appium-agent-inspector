@@ -1,3 +1,6 @@
+# Runtime daemon state
+.appium-agent/
+
 # Logs
 logs
 *.log
