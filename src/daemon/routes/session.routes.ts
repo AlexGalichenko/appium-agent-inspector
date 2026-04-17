@@ -13,7 +13,7 @@ export async function sessionRoutes(
 ): Promise<void> {
   const { sessionManager, elementRegistry } = opts;
 
-  // POST /session - start-app
+  // POST /session - connect
   fastify.post('/session', async (request, reply) => {
     const parseResult = StartSessionRequestSchema.safeParse(request.body);
     if (!parseResult.success) {

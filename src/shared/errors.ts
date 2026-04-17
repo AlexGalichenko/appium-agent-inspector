@@ -10,7 +10,7 @@ export class AppiumAgentError extends Error {
 
 export class SessionNotActiveError extends AppiumAgentError {
   constructor() {
-    super('SESSION_NOT_ACTIVE', 'No active session. Run start-app first.');
+    super('SESSION_NOT_ACTIVE', 'No active session. Run connect first.');
   }
 }
 

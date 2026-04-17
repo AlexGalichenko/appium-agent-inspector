@@ -3,10 +3,10 @@ import { DaemonClient } from '../daemon-client.js';
 import type { AppiumServerConfig } from '../../shared/types.js';
 import { AppiumCapabilitiesSchema, AppiumServerConfigSchema } from '../../shared/types.js';
 
-export function registerStartApp(program: Command): void {
+export function registerReconnect(program: Command): void {
   program
-    .command('start-app')
-    .description('Start an app by creating an Appium session')
+    .command('reconnect')
+    .description('Close any active session and start a new one (recovers from dropped sessions)')
     .requiredOption('--caps <json>', 'Appium capabilities as a JSON string or path to a JSON file')
     .option('--server-host <host>', 'Appium server hostname', 'localhost')
     .option('--server-port <port>', 'Appium server port', '4723')
@@ -28,6 +28,14 @@ export function registerStartApp(program: Command): void {
       const server = AppiumServerConfigSchema.partial().parse(serverPartial);
 
       const client = await DaemonClient.fromDaemonState();
+
+      // Close existing session if any — ignore errors (session may already be gone)
+      try {
+        await client.endSession();
+      } catch {
+        // Swallow SESSION_NOT_ACTIVE and any stale-session errors
+      }
+
       const result = await client.startSession({ capabilities: caps, server });
 
       console.log(`Session started: ${result.sessionId}`);
@@ -36,11 +44,9 @@ export function registerStartApp(program: Command): void {
 }
 
 function parseCaps(input: string): unknown {
-  // Try parsing as JSON directly
   try {
     return JSON.parse(input);
   } catch {
-    // Could be a file path — let the caller handle the error
     throw new Error(
       `Could not parse capabilities as JSON: ${input}\nProvide a valid JSON string.`,
     );

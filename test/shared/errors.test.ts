@@ -24,7 +24,7 @@ describe('SessionNotActiveError', () => {
   it('has correct code and message', () => {
     const err = new SessionNotActiveError();
     expect(err.code).toBe('SESSION_NOT_ACTIVE');
-    expect(err.message).toMatch(/start-app/);
+    expect(err.message).toMatch(/connect/);
     expect(err).toBeInstanceOf(AppiumAgentError);
     expect(err).toBeInstanceOf(Error);
   });

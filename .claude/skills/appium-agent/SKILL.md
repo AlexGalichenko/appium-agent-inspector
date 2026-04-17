@@ -35,27 +35,23 @@ node dist/cli/index.js daemon:start
 ### 2. Start the app (create a session)
 
 ```bash
-node dist/cli/index.js start-app --caps '<json>'
+node dist/cli/index.js connect --caps '<json>'
 ```
 
 **iOS example:**
 ```bash
-node dist/cli/index.js start-app --caps '{
+node dist/cli/index.js connect --caps '{
   "platformName": "iOS",
-  "appium:automationName": "XCUITest",
-  "appium:deviceName": "iPhone 15",
-  "appium:bundleId": "com.example.app"
+  "appium:automationName": "XCUITest"
 }'
 ```
 
 **Android example:**
 ```bash
-node dist/cli/index.js start-app --caps '{
+node dist/cli/index.js connect --caps '{
   "platformName": "Android",
   "appium:automationName": "UiAutomator2",
-  "appium:deviceName": "emulator-5554",
-  "appium:appPackage": "com.example.app",
-  "appium:appActivity": ".MainActivity"
+  "appium:deviceName": "emulator-5554"
 }'
 ```
 
@@ -140,7 +136,7 @@ References use **selector rehydration**: the daemon re-finds the element at acti
 | Error code | Meaning | Fix |
 |---|---|---|
 | `DAEMON_NOT_RUNNING` | Daemon process not found | Run `daemon:start` |
-| `SESSION_NOT_ACTIVE` | No app session open | Run `start-app` |
+| `SESSION_NOT_ACTIVE` | No app session open | Run `connect` |
 | `SESSION_ALREADY_ACTIVE` | Session already open | Run `close-app` first, or proceed |
 | `ELEMENT_NOT_FOUND` | Element not in current view | Check selector / scroll to reveal |
 | `STALE_ELEMENT` | Element was found before but is gone now | Re-run `find-element` |
@@ -151,7 +147,7 @@ References use **selector rehydration**: the daemon re-finds the element at acti
 ```bash
 # 1. Start daemon + app
 node dist/cli/index.js daemon:start
-node dist/cli/index.js start-app --caps '{"platformName":"iOS","appium:automationName":"XCUITest","appium:deviceName":"iPhone 15","appium:bundleId":"com.example.app"}'
+node dist/cli/index.js connect --caps '{"platformName":"iOS","appium:automationName":"XCUITest","appium:deviceName":"iPhone 15","appium:bundleId":"com.example.app"}'
 
 # 2. Fill login form
 node dist/cli/index.js find-element --strategy "accessibility id" --selector "Username"

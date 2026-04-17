@@ -7,7 +7,7 @@ A persistent Appium daemon server with a CLI client, built on [WebdriverIO](http
 ```
 ┌─────────────────────────────────────────────────────┐
 │  appium-agent CLI (any number of invocations)       │
-│  start-app / click / type / page-source / …         │
+│  connect / click / type / page-source / …           │
 └──────────────┬──────────────────────────────────────┘
                │  HTTP  (127.0.0.1:47321)
 ┌──────────────▼──────────────────────────────────────┐
@@ -41,7 +41,7 @@ npm run build
 node dist/cli/index.js daemon:start
 
 # 2. Launch an iOS app
-node dist/cli/index.js start-app --caps '{
+node dist/cli/index.js connect --caps '{
   "platformName": "iOS",
   "appium:automationName": "XCUITest",
   "appium:deviceName": "iPhone 15",
@@ -76,7 +76,7 @@ node dist/cli/index.js daemon:stop
 
 | Command | Options | Description |
 |---|---|---|
-| `start-app` | `--caps <json>` · `--server-host` · `--server-port` · `--server-path` | Create an Appium session. `--caps` accepts a JSON string. |
+| `connect` | `--caps <json>` · `--server-host` · `--server-port` · `--server-path` | Create an Appium session. `--caps` accepts a JSON string. |
 | `close-app` | — | Delete the session and clear all element references. |
 
 ### Elements

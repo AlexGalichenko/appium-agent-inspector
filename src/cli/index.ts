@@ -3,12 +3,13 @@ import { Command } from 'commander';
 import { DaemonNotRunningError, AppiumAgentError } from '../shared/errors.js';
 import { registerStartDaemon } from './commands/start-daemon.command.js';
 import { registerStopDaemon } from './commands/stop-daemon.command.js';
-import { registerStartApp } from './commands/start-app.command.js';
+import { registerConnect } from './commands/connect.command.js';
 import { registerCloseApp } from './commands/close-app.command.js';
 import { registerFindElement } from './commands/find-element.command.js';
 import { registerClick } from './commands/click.command.js';
 import { registerType } from './commands/type.command.js';
 import { registerPageSource } from './commands/page-source.command.js';
+import { registerReconnect } from './commands/reconnect.command.js';
 
 const program = new Command();
 
@@ -19,12 +20,13 @@ program
 
 registerStartDaemon(program);
 registerStopDaemon(program);
-registerStartApp(program);
+registerConnect(program);
 registerCloseApp(program);
 registerFindElement(program);
 registerClick(program);
 registerType(program);
 registerPageSource(program);
+registerReconnect(program);
 
 // Global error handler
 async function run() {
