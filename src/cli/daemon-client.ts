@@ -10,6 +10,7 @@ import type {
   FindElementRequest,
   FindElementResponse,
   GetLocationRequest,
+  InstallAppRequest,
   PageSourceResponse,
   PerformActionResponse,
   ScreenshotResponse,
@@ -89,6 +90,10 @@ export class DaemonClient {
 
   async activateApp(req: ActivateAppRequest): Promise<void> {
     await this.request<{ message: string }>('POST', '/actions/activate-app', req);
+  }
+
+  async installApp(req: InstallAppRequest): Promise<void> {
+    await this.request<{ message: string }>('POST', '/actions/install-app', req);
   }
 
   async terminateApp(req: TerminateAppRequest): Promise<boolean> {

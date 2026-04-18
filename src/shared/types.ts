@@ -144,6 +144,12 @@ export const TerminateAppRequestSchema = z.object({
 
 export type TerminateAppRequest = z.infer<typeof TerminateAppRequestSchema>;
 
+export const InstallAppRequestSchema = z.object({
+  appPath: z.string().min(1),
+});
+
+export type InstallAppRequest = z.infer<typeof InstallAppRequestSchema>;
+
 // ---------------------------------------------------------------------------
 // Execute command request / response
 // ---------------------------------------------------------------------------
