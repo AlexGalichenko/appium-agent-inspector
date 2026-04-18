@@ -100,6 +100,7 @@ Supported locator strategies: `accessibility id`, `id`, `xpath`, `class name`, `
 | `video-stop [output]` | — | Stop video recording. Saves MP4 to `output` path when provided; prints base64 to stdout when omitted. |
 | `get-location` | `--element-id <id>` **or** `--strategy` + `--selector` | Get the position and size (`x`, `y`, `width`, `height`) of an element. |
 | `perform-action` | `<json>` | Perform a touch gesture or raw W3C actions sequence. Accepts a JSON object (`tap`, `swipe`, `long-press`) or a W3C actions array for multi-touch. |
+| `install-app <appPath>` | — | Install an app on the device. Accepts a path to `.ipa`, `.apk`, or `.app`. |
 | `activate-app <appId>` | — | Bring an app to the foreground without ending the session. iOS: bundle ID, Android: package name. |
 | `terminate-app <appId>` | — | Terminate a running app. Prints whether the app was actually running. |
 
@@ -138,6 +139,7 @@ The daemon exposes a JSON REST API on `127.0.0.1:47321`. All responses use the e
 | `POST` | `/actions/type` | Type text into an element. |
 | `GET` | `/actions/page-source` | Get the current XML page source. |
 | `GET` | `/actions/screenshot` | Capture a screenshot (returns base64-encoded PNG). |
+| `POST` | `/actions/install-app` | Install an app on the device (`{ appPath }` body). |
 | `POST` | `/actions/activate-app` | Bring an app to the foreground (`{ appId }` body). |
 | `POST` | `/actions/terminate-app` | Terminate a running app (`{ appId }` body). |
 | `POST` | `/actions/video-start` | Start screen recording. |

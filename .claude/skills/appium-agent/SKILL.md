@@ -245,9 +245,18 @@ node dist/cli/index.js execute --command "mobile: pressButton" --params '{"name"
 
 `--params` must be a JSON object string. Omit it entirely if the command takes no parameters.
 
-### 6. Activate or terminate an app
+### 6. Install, activate, or terminate an app
 
-These commands operate on any app by its identifier — they do **not** close the Appium session.
+These commands operate on any app — they do **not** close the Appium session.
+
+**Install an app:**
+```bash
+# iOS (.ipa or .app)
+node dist/cli/index.js install-app /path/to/MyApp.ipa
+
+# Android (.apk)
+node dist/cli/index.js install-app /path/to/MyApp.apk
+```
 
 **Bring an app to the foreground:**
 ```bash

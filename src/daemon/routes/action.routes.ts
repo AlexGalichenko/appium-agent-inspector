@@ -11,6 +11,7 @@ import {
   ClickRequestSchema,
   ExecuteCommandRequestSchema,
   GetLocationRequestSchema,
+  InstallAppRequestSchema,
   PerformActionRequestSchema,
   TerminateAppRequestSchema,
   TypeRequestSchema,
@@ -130,6 +131,35 @@ export async function actionRoutes(
       const driver = sessionManager.getDriver();
       const terminated = await driver.terminateApp(parseResult.data.appId);
       return reply.send({ ok: true, data: { terminated } });
+    } catch (err) {
+      if (err instanceof SessionNotActiveError) {
+        return reply.status(409).send({
+          ok: false,
+          error: { code: err.code, message: err.message },
+        });
+      }
+      throw err;
+    }
+  });
+
+  // POST /actions/install-app
+  fastify.post('/actions/install-app', async (request, reply) => {
+    const parseResult = InstallAppRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: parseResult.error.flatten(),
+        },
+      });
+    }
+
+    try {
+      const driver = sessionManager.getDriver();
+      await driver.installApp(parseResult.data.appPath);
+      return reply.send({ ok: true, data: { message: `App installed: ${parseResult.data.appPath}` } });
     } catch (err) {
       if (err instanceof SessionNotActiveError) {
         return reply.status(409).send({
