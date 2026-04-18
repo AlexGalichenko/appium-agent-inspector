@@ -135,6 +135,21 @@ export const TerminateAppRequestSchema = z.object({
 export type TerminateAppRequest = z.infer<typeof TerminateAppRequestSchema>;
 
 // ---------------------------------------------------------------------------
+// Execute command request / response
+// ---------------------------------------------------------------------------
+
+export const ExecuteCommandRequestSchema = z.object({
+  command: z.string().min(1),
+  params: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type ExecuteCommandRequest = z.infer<typeof ExecuteCommandRequestSchema>;
+
+export interface ExecuteCommandResponse {
+  result: unknown;
+}
+
+// ---------------------------------------------------------------------------
 // Page source response
 // ---------------------------------------------------------------------------
 
