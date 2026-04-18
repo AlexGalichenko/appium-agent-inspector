@@ -19,6 +19,10 @@
     "appium-daemon": "dist/daemon/index.js"
   },
   "author": "Oleksandr Halchenko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlexGalichenko/appium-agent-inspector.git"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev:daemon": "tsx watch src/daemon/index.ts",
