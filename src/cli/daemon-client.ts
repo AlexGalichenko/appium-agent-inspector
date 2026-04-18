@@ -14,6 +14,7 @@ import type {
   StartSessionResponse,
   TerminateAppRequest,
   TypeRequest,
+  VideoStopResponse,
 } from '../shared/types.js';
 import { DAEMON_PORT } from '../shared/constants.js';
 import { isDaemonProcessAlive, readDaemonState } from '../daemon/pid-file.js';
@@ -102,6 +103,14 @@ export class DaemonClient {
 
   async getPageSource(): Promise<PageSourceResponse> {
     return this.request<PageSourceResponse>('GET', '/actions/page-source');
+  }
+
+  async startVideoRecording(): Promise<void> {
+    await this.request<{ message: string; startedAt: string }>('POST', '/actions/video-start');
+  }
+
+  async stopVideoRecording(): Promise<VideoStopResponse> {
+    return this.request<VideoStopResponse>('POST', '/actions/video-stop');
   }
 
   async shutdown(): Promise<void> {

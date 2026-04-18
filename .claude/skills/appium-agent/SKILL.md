@@ -136,6 +136,18 @@ node dist/cli/index.js take-screenshot --output /tmp/screen.png
 node dist/cli/index.js take-screenshot
 ```
 
+**Record video:**
+```bash
+# Start recording
+node dist/cli/index.js video-start
+
+# Stop recording and save MP4
+node dist/cli/index.js video-stop /recordings/recording.mp4
+
+# Stop recording and print base64 to stdout
+node dist/cli/index.js video-stop
+```
+
 **Execute a mobile command:**
 ```bash
 # Scroll down (no return value)
