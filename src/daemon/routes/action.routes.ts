@@ -10,6 +10,7 @@ import {
   ClickRequestSchema,
   ExecuteCommandRequestSchema,
   GetLocationRequestSchema,
+  PerformActionRequestSchema,
   TerminateAppRequestSchema,
   TypeRequestSchema,
 } from '../../shared/types.js';
@@ -249,6 +250,70 @@ export async function actionRoutes(
         ok: true,
         data: { data, stoppedAt: new Date().toISOString() },
       });
+    } catch (err) {
+      if (err instanceof SessionNotActiveError) {
+        return reply.status(409).send({
+          ok: false,
+          error: { code: err.code, message: err.message },
+        });
+      }
+      throw err;
+    }
+  });
+
+  // POST /actions/perform
+  fastify.post('/actions/perform', async (request, reply) => {
+    const parseResult = PerformActionRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: parseResult.error.flatten(),
+        },
+      });
+    }
+
+    try {
+      const driver = sessionManager.getDriver();
+      const body = parseResult.data;
+
+      if (Array.isArray(body)) {
+        // Raw W3C Actions API
+        await driver.performActions(body);
+        return reply.send({ ok: true, data: { message: 'actions performed' } });
+      }
+
+      if (body.type === 'tap') {
+        await driver
+          .action('pointer', { parameters: { pointerType: 'touch' } })
+          .move({ duration: 0, x: body.x, y: body.y })
+          .down({ button: 0 })
+          .pause(body.duration)
+          .up({ button: 0 })
+          .perform();
+      } else if (body.type === 'swipe') {
+        await driver
+          .action('pointer', { parameters: { pointerType: 'touch' } })
+          .move({ duration: 0, x: body.startX, y: body.startY })
+          .down({ button: 0 })
+          .pause(50)
+          .move({ duration: body.duration, x: body.endX, y: body.endY })
+          .up({ button: 0 })
+          .perform();
+      } else {
+        // long-press
+        await driver
+          .action('pointer', { parameters: { pointerType: 'touch' } })
+          .move({ duration: 0, x: body.x, y: body.y })
+          .down({ button: 0 })
+          .pause(body.duration)
+          .up({ button: 0 })
+          .perform();
+      }
+
+      return reply.send({ ok: true, data: { message: `${body.type} performed` } });
     } catch (err) {
       if (err instanceof SessionNotActiveError) {
         return reply.status(409).send({

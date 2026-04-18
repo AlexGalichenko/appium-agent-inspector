@@ -160,6 +160,45 @@ export interface ExecuteCommandResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Perform action request / response
+// ---------------------------------------------------------------------------
+
+// High-level gesture shortcuts
+export const GestureActionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('tap'),
+    x: z.number(),
+    y: z.number(),
+    duration: z.number().int().nonnegative().default(0),
+  }),
+  z.object({
+    type: z.literal('swipe'),
+    startX: z.number(),
+    startY: z.number(),
+    endX: z.number(),
+    endY: z.number(),
+    duration: z.number().int().nonnegative().default(1000),
+  }),
+  z.object({
+    type: z.literal('long-press'),
+    x: z.number(),
+    y: z.number(),
+    duration: z.number().int().nonnegative().default(1500),
+  }),
+]);
+
+// Raw W3C Actions API — array of action source objects
+export const RawActionsSchema = z.array(z.record(z.string(), z.unknown()));
+
+export const PerformActionRequestSchema = z.union([GestureActionSchema, RawActionsSchema]);
+
+export type PerformActionRequest = z.infer<typeof PerformActionRequestSchema>;
+
+export interface PerformActionResponse {
+  message: string;
+}
+
+// ---------------------------------------------------------------------------
 // Page source response
 // ---------------------------------------------------------------------------
 

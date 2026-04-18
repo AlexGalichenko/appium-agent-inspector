@@ -161,6 +161,71 @@ node dist/cli/index.js video-stop /recordings/recording.mp4
 node dist/cli/index.js video-stop
 ```
 
+**Perform touch gestures:**
+
+`perform-action` accepts a JSON object (high-level gesture) or a raw W3C actions array.
+
+```bash
+# Tap at coordinates
+node dist/cli/index.js perform-action '{"type":"tap","x":200,"y":400}'
+
+# Swipe (scroll up: start low, end high)
+node dist/cli/index.js perform-action '{"type":"swipe","startX":200,"startY":700,"endX":200,"endY":200,"duration":400}'
+
+# Long press
+node dist/cli/index.js perform-action '{"type":"long-press","x":200,"y":400,"duration":1500}'
+```
+
+**Common interaction patterns:**
+
+*Scroll down (finger moves up):*
+```bash
+node dist/cli/index.js perform-action '{"type":"swipe","startX":200,"startY":300,"endX":200,"endY":800,"duration":400}'
+```
+
+*Scroll up (finger moves down):*
+```bash
+node dist/cli/index.js perform-action '{"type":"swipe","startX":200,"startY":700,"endX":200,"endY":200,"duration":400}'
+```
+
+*Swipe left (next page / dismiss):*
+```bash
+node dist/cli/index.js perform-action '{"type":"swipe","startX":700,"startY":400,"endX":100,"endY":400,"duration":300}'
+```
+
+*Swipe right (go back / previous page):*
+```bash
+node dist/cli/index.js perform-action '{"type":"swipe","startX":100,"startY":400,"endX":700,"endY":400,"duration":300}'
+```
+
+*Drag and drop — use `get-location` to find source/target coordinates, then pass a raw W3C pointer sequence:*
+```bash
+# 1. Get source element location
+node dist/cli/index.js get-location --strategy "accessibility id" --selector "Item"
+# → x: 50  y: 300  width: 100  height: 50
+# center: x=100, y=325
+
+# 2. Get target element location
+node dist/cli/index.js get-location --strategy "accessibility id" --selector "Drop Zone"
+# → x: 50  y: 600  width: 200  height: 80
+# center: x=150, y=640
+
+# 3. Perform drag: move to source, press, pause (signals drag intent), move to target, release
+node dist/cli/index.js perform-action '[{"type":"pointer","id":"finger1","parameters":{"pointerType":"touch"},"actions":[{"type":"pointerMove","duration":0,"x":100,"y":325},{"type":"pointerDown","button":0},{"type":"pause","duration":750},{"type":"pointerMove","duration":500,"x":150,"y":640},{"type":"pointerUp","button":0}]}]'
+```
+
+*Pinch to zoom out (two fingers moving inward):*
+```bash
+node dist/cli/index.js perform-action '[{"type":"pointer","id":"finger1","parameters":{"pointerType":"touch"},"actions":[{"type":"pointerMove","duration":0,"x":100,"y":300},{"type":"pointerDown","button":0},{"type":"pointerMove","duration":500,"x":200,"y":400},{"type":"pointerUp","button":0}]},{"type":"pointer","id":"finger2","parameters":{"pointerType":"touch"},"actions":[{"type":"pointerMove","duration":0,"x":300,"y":500},{"type":"pointerDown","button":0},{"type":"pointerMove","duration":500,"x":200,"y":400},{"type":"pointerUp","button":0}]}]'
+```
+
+*Spread to zoom in (two fingers moving outward):*
+```bash
+node dist/cli/index.js perform-action '[{"type":"pointer","id":"finger1","parameters":{"pointerType":"touch"},"actions":[{"type":"pointerMove","duration":0,"x":200,"y":400},{"type":"pointerDown","button":0},{"type":"pointerMove","duration":500,"x":100,"y":300},{"type":"pointerUp","button":0}]},{"type":"pointer","id":"finger2","parameters":{"pointerType":"touch"},"actions":[{"type":"pointerMove","duration":0,"x":200,"y":400},{"type":"pointerDown","button":0},{"type":"pointerMove","duration":500,"x":300,"y":500},{"type":"pointerUp","button":0}]}]'
+```
+
+> **Tip — using coordinates vs `mobile:` commands:** For iOS, `mobile: scroll` and `mobile: swipe` (XCUITest gestures) are more reliable than coordinate-based swipes because they work regardless of screen size. Prefer `execute --command "mobile: scroll"` for list scrolling; use `perform-action` for drag & drop and multi-touch.
+
 **Execute a mobile command:**
 ```bash
 # Scroll down (no return value)
