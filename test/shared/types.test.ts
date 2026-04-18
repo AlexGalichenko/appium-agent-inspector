@@ -6,6 +6,7 @@ import {
   ClickRequestSchema,
   FindElementRequestSchema,
   LocatorStrategySchema,
+  PerformActionRequestSchema,
   StartSessionRequestSchema,
   TerminateAppRequestSchema,
   TypeRequestSchema,
@@ -213,6 +214,113 @@ describe('TerminateAppRequestSchema', () => {
 
   it('rejects empty appId', () => {
     expect(TerminateAppRequestSchema.safeParse({ appId: '' }).success).toBe(false);
+  });
+});
+
+describe('PerformActionRequestSchema', () => {
+  describe('tap', () => {
+    it('accepts valid tap and applies default duration of 0', () => {
+      const result = PerformActionRequestSchema.safeParse({ type: 'tap', x: 100, y: 200 });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data as { duration: number }).duration).toBe(0);
+      }
+    });
+
+    it('accepts explicit duration', () => {
+      expect(
+        PerformActionRequestSchema.safeParse({ type: 'tap', x: 100, y: 200, duration: 500 }).success,
+      ).toBe(true);
+    });
+
+    it('rejects missing x', () => {
+      expect(PerformActionRequestSchema.safeParse({ type: 'tap', y: 200 }).success).toBe(false);
+    });
+
+    it('rejects missing y', () => {
+      expect(PerformActionRequestSchema.safeParse({ type: 'tap', x: 100 }).success).toBe(false);
+    });
+
+    it('rejects negative duration', () => {
+      expect(
+        PerformActionRequestSchema.safeParse({ type: 'tap', x: 100, y: 200, duration: -1 }).success,
+      ).toBe(false);
+    });
+  });
+
+  describe('swipe', () => {
+    const validSwipe = { type: 'swipe', startX: 100, startY: 500, endX: 100, endY: 200 };
+
+    it('accepts valid swipe and applies default duration of 1000', () => {
+      const result = PerformActionRequestSchema.safeParse(validSwipe);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data as { duration: number }).duration).toBe(1000);
+      }
+    });
+
+    it('accepts explicit duration', () => {
+      expect(PerformActionRequestSchema.safeParse({ ...validSwipe, duration: 300 }).success).toBe(true);
+    });
+
+    it('rejects missing start coordinates', () => {
+      expect(
+        PerformActionRequestSchema.safeParse({ type: 'swipe', endX: 100, endY: 200 }).success,
+      ).toBe(false);
+    });
+
+    it('rejects missing end coordinates', () => {
+      expect(
+        PerformActionRequestSchema.safeParse({ type: 'swipe', startX: 100, startY: 500 }).success,
+      ).toBe(false);
+    });
+  });
+
+  describe('long-press', () => {
+    it('accepts valid long-press and applies default duration of 1500', () => {
+      const result = PerformActionRequestSchema.safeParse({ type: 'long-press', x: 200, y: 400 });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data as { duration: number }).duration).toBe(1500);
+      }
+    });
+
+    it('accepts explicit duration', () => {
+      expect(
+        PerformActionRequestSchema.safeParse({ type: 'long-press', x: 200, y: 400, duration: 2000 }).success,
+      ).toBe(true);
+    });
+
+    it('rejects missing coordinates', () => {
+      expect(PerformActionRequestSchema.safeParse({ type: 'long-press' }).success).toBe(false);
+    });
+  });
+
+  describe('raw W3C actions array', () => {
+    it('accepts a non-empty actions array', () => {
+      const result = PerformActionRequestSchema.safeParse([
+        { type: 'pointer', id: 'finger1', parameters: { pointerType: 'touch' }, actions: [] },
+      ]);
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts an empty array', () => {
+      expect(PerformActionRequestSchema.safeParse([]).success).toBe(true);
+    });
+
+    it('rejects an unknown gesture type object', () => {
+      expect(
+        PerformActionRequestSchema.safeParse({ type: 'double-tap', x: 100, y: 200 }).success,
+      ).toBe(false);
+    });
+
+    it('rejects a plain string', () => {
+      expect(PerformActionRequestSchema.safeParse('tap').success).toBe(false);
+    });
+
+    it('rejects a number', () => {
+      expect(PerformActionRequestSchema.safeParse(42).success).toBe(false);
+    });
   });
 });
 

@@ -33,6 +33,16 @@ const MOCK_ELEMENT = {
   click: vi.fn().mockResolvedValue(undefined),
   setValue: vi.fn().mockResolvedValue(undefined),
   clearValue: vi.fn().mockResolvedValue(undefined),
+  getLocation: vi.fn().mockResolvedValue({ x: 10, y: 20 }),
+  getSize: vi.fn().mockResolvedValue({ width: 100, height: 50 }),
+};
+
+const MOCK_ACTION_CHAIN = {
+  move: vi.fn().mockReturnThis(),
+  down: vi.fn().mockReturnThis(),
+  up: vi.fn().mockReturnThis(),
+  pause: vi.fn().mockReturnThis(),
+  perform: vi.fn().mockResolvedValue(undefined),
 };
 
 function makeSessionManager(overrides: Partial<Record<keyof SessionManager, unknown>> = {}) {
@@ -40,11 +50,16 @@ function makeSessionManager(overrides: Partial<Record<keyof SessionManager, unkn
     startSession: vi.fn().mockResolvedValue(SESSION_META),
     endSession: vi.fn().mockResolvedValue(undefined),
     getDriver: vi.fn().mockReturnValue({
-    getPageSource: vi.fn().mockResolvedValue('<xml/>'),
-    takeScreenshot: vi.fn().mockResolvedValue('base64png=='),
-    activateApp: vi.fn().mockResolvedValue(undefined),
-    terminateApp: vi.fn().mockResolvedValue(true),
-  }),
+      getPageSource: vi.fn().mockResolvedValue('<xml/>'),
+      takeScreenshot: vi.fn().mockResolvedValue('base64png=='),
+      activateApp: vi.fn().mockResolvedValue(undefined),
+      terminateApp: vi.fn().mockResolvedValue(true),
+      execute: vi.fn().mockResolvedValue(null),
+      startRecordingScreen: vi.fn().mockResolvedValue(undefined),
+      stopRecordingScreen: vi.fn().mockResolvedValue('base64mp4=='),
+      performActions: vi.fn().mockResolvedValue(undefined),
+      action: vi.fn().mockReturnValue(MOCK_ACTION_CHAIN),
+    }),
     getSessionMeta: vi.fn().mockReturnValue(SESSION_META),
     isActive: vi.fn().mockReturnValue(false),
     getSessionId: vi.fn().mockReturnValue('sess-1'),
@@ -456,6 +471,135 @@ describe('buildServer', () => {
         method: 'POST',
         url: '/actions/terminate-app',
         payload: { appId: 'com.example.app' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(JSON.parse(res.body).error.code).toBe('SESSION_NOT_ACTIVE');
+    });
+  });
+
+  // ── perform-action route ──────────────────────────────────────────────────
+
+  describe('POST /actions/perform', () => {
+    it('performs a tap gesture via the fluent action chain', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: { type: 'tap', x: 200, y: 400 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'tap performed' } });
+      const driver = sessionManager.getDriver();
+      expect(driver.action).toHaveBeenCalledWith('pointer', { parameters: { pointerType: 'touch' } });
+      expect(MOCK_ACTION_CHAIN.perform).toHaveBeenCalled();
+    });
+
+    it('performs a swipe gesture via the fluent action chain', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: { type: 'swipe', startX: 100, startY: 700, endX: 100, endY: 200, duration: 400 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'swipe performed' } });
+      expect(MOCK_ACTION_CHAIN.perform).toHaveBeenCalled();
+    });
+
+    it('performs a long-press gesture via the fluent action chain', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: { type: 'long-press', x: 200, y: 400, duration: 1500 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'long-press performed' } });
+      expect(MOCK_ACTION_CHAIN.perform).toHaveBeenCalled();
+    });
+
+    it('performs raw W3C actions via performActions', async () => {
+      const actions = [
+        {
+          type: 'pointer',
+          id: 'finger1',
+          parameters: { pointerType: 'touch' },
+          actions: [
+            { type: 'pointerMove', duration: 0, x: 200, y: 400 },
+            { type: 'pointerDown', button: 0 },
+            { type: 'pause', duration: 50 },
+            { type: 'pointerUp', button: 0 },
+          ],
+        },
+      ];
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: actions,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'actions performed' } });
+      const driver = sessionManager.getDriver();
+      expect(driver.performActions).toHaveBeenCalledWith(actions);
+    });
+
+    it('applies default duration for tap when omitted', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: { type: 'tap', x: 100, y: 200 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(MOCK_ACTION_CHAIN.pause).toHaveBeenCalledWith(0);
+    });
+
+    it('applies default duration for swipe when omitted', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: { type: 'swipe', startX: 0, startY: 0, endX: 0, endY: 100 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(MOCK_ACTION_CHAIN.move).toHaveBeenCalledWith(
+        expect.objectContaining({ duration: 1000 }),
+      );
+    });
+
+    it('applies default duration for long-press when omitted', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: { type: 'long-press', x: 100, y: 200 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(MOCK_ACTION_CHAIN.pause).toHaveBeenCalledWith(1500);
+    });
+
+    it('returns 400 for unknown gesture type', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: { type: 'double-tap', x: 100, y: 200 },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 400 for missing coordinates in tap', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: { type: 'tap' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 409 when no session is active', async () => {
+      vi.mocked(sessionManager.getDriver).mockImplementationOnce(() => {
+        throw new SessionNotActiveError();
+      });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/perform',
+        payload: { type: 'tap', x: 100, y: 200 },
       });
       expect(res.statusCode).toBe(409);
       expect(JSON.parse(res.body).error.code).toBe('SESSION_NOT_ACTIVE');
