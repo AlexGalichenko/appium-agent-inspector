@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
+import { LocatorStrategySchema } from '../../shared/types.js';
 
 export function registerGetAttribute(program: Command): void {
   program
@@ -13,7 +14,7 @@ export function registerGetAttribute(program: Command): void {
       const client = await DaemonClient.fromDaemonState();
       const target = opts.elementId
         ? { elementId: opts.elementId }
-        : { strategy: opts.strategy!, selector: opts.selector! };
+        : { strategy: LocatorStrategySchema.parse(opts.strategy), selector: opts.selector! };
       const result = await client.getAttribute({ ...target, attribute: opts.attribute });
       console.log(`${result.attribute}: ${result.value}`);
     });

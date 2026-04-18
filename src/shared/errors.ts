@@ -43,7 +43,7 @@ export class StaleElementError extends AppiumAgentError {
 
 export class DaemonNotRunningError extends AppiumAgentError {
   constructor() {
-    super('DAEMON_NOT_RUNNING', 'Daemon is not running. Start it with: appium-agent daemon start');
+    super('DAEMON_NOT_RUNNING', 'Daemon is not running. Start it with: appium-agent daemon:start');
   }
 }
 
