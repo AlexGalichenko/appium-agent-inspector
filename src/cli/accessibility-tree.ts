@@ -72,8 +72,8 @@ function getRole(node: XmlNode): string {
 
 function getName(node: XmlNode): string | null {
   const { attrs } = node;
-  // iOS: label is the human-readable text, name is the accessibility identifier
-  return attrs['label'] || attrs['name'] || attrs['content-desc'] || attrs['text'] || null;
+  // iOS: name is the accessibility identifier (used as selector), label is human-readable
+  return attrs['name'] || attrs['content-desc'] || attrs['text'] || null;
 }
 
 function getStates(node: XmlNode, name: string | null): string[] {
@@ -84,6 +84,9 @@ function getStates(node: XmlNode, name: string | null): string[] {
   if (attrs['checked'] === 'true') states.push('checked');
   if (attrs['selected'] === 'true') states.push('selected');
   if (attrs['focused'] === 'true') states.push('focused');
+
+  const label = attrs['label'];
+  if (label && label !== '' && label !== name) states.push(`label="${label}"`);
 
   const val = attrs['value'];
   if (val && val !== '' && val !== name) states.push(`value="${val}"`);

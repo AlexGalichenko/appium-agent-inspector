@@ -141,10 +141,10 @@ describe('Android simple tree', () => {
 // ─── Name resolution ─────────────────────────────────────────────────────────
 
 describe('name resolution', () => {
-  it('prefers label over name for iOS elements', () => {
+  it('uses name as primary identifier and shows label as extra attribute when different', () => {
     const result = toAccessibilityYaml(IOS_LABEL_OVER_NAME);
-    expect(result).toContain('"My App"');
-    expect(result).not.toContain('"bundle-id"');
+    expect(result).toContain('"bundle-id"');
+    expect(result).toContain('[label="My App"]');
   });
 
   it('prefers content-desc over text for Android elements', () => {
