@@ -57,9 +57,19 @@ node dist/cli/index.js connect --caps '{
 
 Optional server flags: `--server-host`, `--server-port` (default `localhost:4723`), `--server-path`.
 
-### 3. Find elements
+### 3. Get page source to discover locators
 
-Before tapping or typing, find the element and save its reference ID:
+**Always fetch the page source before attempting to find or interact with any element.** The XML reveals the actual accessibility IDs, labels, and element types present on screen — do not guess selectors.
+
+```bash
+node dist/cli/index.js page-source --raw > /tmp/page.xml
+```
+
+Read `/tmp/page.xml` to identify available `name`, `label`, `value`, and `type` attributes. Use these to build accurate locators before calling `find-element`.
+
+### 4. Find elements
+
+After inspecting the page source, find the element and save its reference ID:
 
 ```bash
 node dist/cli/index.js find-element --strategy "accessibility id" --selector "Login"
@@ -79,7 +89,7 @@ Store the printed ID for use in follow-up actions.
 | `-ios class chain` | `**/XCUIElementTypeButton[\`label == "Login"\`]` |
 | `-android uiautomator` | `text("Login")` |
 
-### 4. Interact with the app
+### 5. Interact with the app
 
 **Click (tap):**
 ```bash
@@ -120,7 +130,7 @@ node dist/cli/index.js take-screenshot --output /tmp/screen.png
 node dist/cli/index.js take-screenshot
 ```
 
-### 5. Activate or terminate an app
+### 6. Activate or terminate an app
 
 These commands operate on any app by its identifier — they do **not** close the Appium session.
 
@@ -139,7 +149,7 @@ node dist/cli/index.js terminate-app com.example.app
 # → "App terminated: com.example.app"  (or "App was not running: ..." if already stopped)
 ```
 
-### 6. Close the app and end the session
+### 7. Close the app and end the session
 
 ```bash
 node dist/cli/index.js close-app
@@ -147,7 +157,7 @@ node dist/cli/index.js close-app
 
 This deletes the Appium session and clears all stored element references.
 
-### 7. Kill the daemon (optional)
+### 8. Kill the daemon (optional)
 
 ```bash
 node dist/cli/index.js daemon:kill
@@ -177,7 +187,11 @@ References use **selector rehydration**: the daemon re-finds the element at acti
 node dist/cli/index.js daemon:start
 node dist/cli/index.js connect --caps '{"platformName":"iOS","appium:automationName":"XCUITest","appium:deviceName":"iPhone 15","appium:bundleId":"com.example.app"}'
 
-# 2. Fill login form
+# 2. Inspect the screen to discover locators
+node dist/cli/index.js page-source --raw > /tmp/page.xml
+# → Read /tmp/page.xml to find correct accessibility IDs, labels, and element types
+
+# 3. Fill login form
 node dist/cli/index.js find-element --strategy "accessibility id" --selector "Username"
 # → ID: ref-abc
 node dist/cli/index.js type --element-id ref-abc --text "admin" --clear
@@ -188,9 +202,9 @@ node dist/cli/index.js type --element-id ref-def --text "secret" --clear
 
 node dist/cli/index.js click --strategy "accessibility id" --selector "Login"
 
-# 3. Inspect the next screen
+# 4. Inspect the next screen
 node dist/cli/index.js page-source --raw
 
-# 4. Done
+# 5. Done
 node dist/cli/index.js close-app
 ```
