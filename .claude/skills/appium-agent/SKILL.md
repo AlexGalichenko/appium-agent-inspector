@@ -136,6 +136,18 @@ node dist/cli/index.js take-screenshot --output /tmp/screen.png
 node dist/cli/index.js take-screenshot
 ```
 
+**Get an element attribute:**
+```bash
+# By stored reference
+node dist/cli/index.js get-attribute --element-id V1StGXR8_Z5jd --attribute value
+
+# Or inline
+node dist/cli/index.js get-attribute --strategy "accessibility id" --selector "switch" --attribute value
+# → value: 0
+```
+
+Common attributes: `value`, `label`, `name`, `enabled`, `visible`, `accessible`, `focused`.
+
 **Get element location and size:**
 ```bash
 # By stored reference

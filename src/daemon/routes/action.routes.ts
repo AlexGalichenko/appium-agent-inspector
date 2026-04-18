@@ -10,6 +10,7 @@ import {
   ActivateAppRequestSchema,
   ClickRequestSchema,
   ExecuteCommandRequestSchema,
+  GetAttributeRequestSchema,
   GetLocationRequestSchema,
   InstallAppRequestSchema,
   PerformActionRequestSchema,
@@ -168,6 +169,34 @@ export async function actionRoutes(
         });
       }
       throw err;
+    }
+  });
+
+  // POST /actions/attribute
+  fastify.post('/actions/attribute', async (request, reply) => {
+    const parseResult = GetAttributeRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: z.prettifyError(parseResult.error),
+        },
+      });
+    }
+
+    try {
+      const body = parseResult.data;
+      const element =
+        'elementId' in body
+          ? await elementRegistry.retrieveElement(body.elementId, sessionManager)
+          : await elementRegistry.findElement(body.strategy, body.selector, sessionManager);
+
+      const value = await element.getAttribute(body.attribute);
+      return reply.send({ ok: true, data: { attribute: body.attribute, value } });
+    } catch (err) {
+      return handleActionError(err, reply);
     }
   });
 

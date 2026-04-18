@@ -98,6 +98,7 @@ Supported locator strategies: `accessibility id`, `id`, `xpath`, `class name`, `
 | `take-screenshot` | `--output <path>` | Capture the device screen. Saves a PNG to `--output`; prints base64 to stdout when omitted. |
 | `video-start` | — | Start video recording of the device screen. |
 | `video-stop [output]` | — | Stop video recording. Saves MP4 to `output` path when provided; prints base64 to stdout when omitted. |
+| `get-attribute` | `--attribute <name>` · `--element-id <id>` **or** `--strategy` + `--selector` | Get an attribute value of an element (e.g. `value`, `label`, `enabled`). |
 | `get-location` | `--element-id <id>` **or** `--strategy` + `--selector` | Get the position and size (`x`, `y`, `width`, `height`) of an element. |
 | `perform-action` | `<json>` | Perform a touch gesture or raw W3C actions sequence. Accepts a JSON object (`tap`, `swipe`, `long-press`) or a W3C actions array for multi-touch. |
 | `install-app <appPath>` | — | Install an app on the device. Accepts a path to `.ipa`, `.apk`, or `.app`. |
@@ -144,6 +145,7 @@ The daemon exposes a JSON REST API on `127.0.0.1:47321`. All responses use the e
 | `POST` | `/actions/terminate-app` | Terminate a running app (`{ appId }` body). |
 | `POST` | `/actions/video-start` | Start screen recording. |
 | `POST` | `/actions/video-stop` | Stop screen recording (returns base64-encoded MP4). |
+| `POST` | `/actions/attribute` | Get an attribute value (`ElementTarget + { attribute }` body, returns `{attribute, value}`). |
 | `POST` | `/actions/location` | Get element position and size (`ElementTarget` body, returns `{x, y, width, height}`). |
 | `POST` | `/actions/perform` | Perform a touch gesture or raw W3C actions sequence (gesture object or actions array body). |
 | `POST` | `/daemon/shutdown` | Gracefully shut down the daemon. |

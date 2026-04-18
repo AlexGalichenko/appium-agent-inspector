@@ -15,6 +15,7 @@ import { registerTakeScreenshot } from './commands/take-screenshot.command.js';
 import { registerExecute } from './commands/execute.command.js';
 import { registerVideoStart } from './commands/video-start.command.js';
 import { registerVideoStop } from './commands/video-stop.command.js';
+import { registerGetAttribute } from './commands/get-attribute.command.js';
 import { registerGetLocation } from './commands/get-location.command.js';
 import { registerPerformAction } from './commands/perform-action.command.js';
 
@@ -39,6 +40,7 @@ registerTakeScreenshot(program);
 registerExecute(program);
 registerVideoStart(program);
 registerVideoStop(program);
+registerGetAttribute(program);
 registerGetLocation(program);
 registerPerformAction(program);
 
