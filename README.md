@@ -43,9 +43,7 @@ node dist/cli/index.js daemon:start
 # 2. Launch an iOS app
 node dist/cli/index.js connect --caps '{
   "platformName": "iOS",
-  "appium:automationName": "XCUITest",
-  "appium:deviceName": "iPhone 15",
-  "appium:bundleId": "com.example.app"
+  "appium:automationName": "XCUITest"
 }'
 
 # 3. Interact with the app
@@ -59,8 +57,8 @@ node dist/cli/index.js take-screenshot --output screen.png
 node dist/cli/index.js video-start
 node dist/cli/index.js video-stop recording.mp4
 
-# 4. Close the app
-node dist/cli/index.js close-app
+# 4. Close the session
+node dist/cli/index.js delete-session
 
 # 5. Kill the daemon
 node dist/cli/index.js daemon:kill
@@ -80,8 +78,7 @@ node dist/cli/index.js daemon:kill
 | Command | Options | Description |
 |---|---|---|
 | `connect` | `--caps <json>` · `--server-host` · `--server-port` · `--server-path` | Create an Appium session. `--caps` accepts a JSON string. |
-| `reconnect` | `--caps <json>` · `--server-host` · `--server-port` · `--server-path` | Close any existing session (silently ignoring errors) then start a new one. Use this to recover from a dropped or stale session without manually running `close-app` first. |
-| `close-app` | — | Delete the session and clear all element references. |
+| `delete-session` | — | Close appium session and clear all element references. |
 
 ### Elements
 

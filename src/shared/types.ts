@@ -25,7 +25,7 @@ export const AppiumCapabilitiesSchema = z
   .object({
     platformName: z.enum(['iOS', 'Android']),
     'appium:automationName': z.enum(['XCUITest', 'UiAutomator2', 'Espresso']),
-    'appium:deviceName': z.string(),
+    'appium:deviceName': z.string().optional(),
     'appium:udid': z.string().optional(),
     'appium:app': z.string().optional(),
     'appium:bundleId': z.string().optional(),
@@ -35,7 +35,7 @@ export const AppiumCapabilitiesSchema = z
     'appium:noReset': z.boolean().optional(),
     'appium:fullReset': z.boolean().optional(),
   })
-  .passthrough();
+  .loose();
 
 export type AppiumCapabilities = z.infer<typeof AppiumCapabilitiesSchema>;
 

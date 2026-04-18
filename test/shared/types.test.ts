@@ -84,14 +84,6 @@ describe('AppiumCapabilitiesSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects missing required field', () => {
-    const result = AppiumCapabilitiesSchema.safeParse({
-      platformName: 'iOS',
-      'appium:automationName': 'XCUITest',
-      // missing deviceName
-    });
-    expect(result.success).toBe(false);
-  });
 });
 
 describe('AppiumServerConfigSchema', () => {

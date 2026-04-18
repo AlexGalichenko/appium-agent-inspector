@@ -17,7 +17,7 @@ export function registerFindElement(program: Command): void {
       const result = await client.findElement({ strategy, selector: opts.selector });
 
       console.log(`Element found:`);
-      console.log(`  ID:       ${result.elementId}`);
+      console.log(`  ID: ${result.elementId}`);
       console.log(`  Strategy: ${result.strategy}`);
       console.log(`  Selector: ${result.selector}`);
       console.log(`  Found at: ${result.foundAt}`);

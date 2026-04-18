@@ -16,7 +16,7 @@ export class SessionNotActiveError extends AppiumAgentError {
 
 export class SessionAlreadyActiveError extends AppiumAgentError {
   constructor() {
-    super('SESSION_ALREADY_ACTIVE', 'A session is already active. Run close-app first.');
+    super('SESSION_ALREADY_ACTIVE', 'A session is already active. Run delete-session first.');
   }
 }
 

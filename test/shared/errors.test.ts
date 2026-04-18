@@ -34,7 +34,7 @@ describe('SessionAlreadyActiveError', () => {
   it('has correct code and message', () => {
     const err = new SessionAlreadyActiveError();
     expect(err.code).toBe('SESSION_ALREADY_ACTIVE');
-    expect(err.message).toMatch(/close-app/);
+    expect(err.message).toMatch(/delete-session/);
     expect(err).toBeInstanceOf(AppiumAgentError);
   });
 });
