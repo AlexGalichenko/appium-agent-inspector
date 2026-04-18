@@ -4,6 +4,8 @@ import type {
   ApiResponse,
   ClickRequest,
   ElementReference,
+  ExecuteCommandRequest,
+  ExecuteCommandResponse,
   FindElementRequest,
   FindElementResponse,
   PageSourceResponse,
@@ -88,6 +90,10 @@ export class DaemonClient {
   async terminateApp(req: TerminateAppRequest): Promise<boolean> {
     const result = await this.request<{ terminated: boolean }>('POST', '/actions/terminate-app', req);
     return result.terminated;
+  }
+
+  async executeCommand(req: ExecuteCommandRequest): Promise<ExecuteCommandResponse> {
+    return this.request<ExecuteCommandResponse>('POST', '/actions/execute', req);
   }
 
   async takeScreenshot(): Promise<ScreenshotResponse> {

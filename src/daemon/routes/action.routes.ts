@@ -8,6 +8,7 @@ import {
 import {
   ActivateAppRequestSchema,
   ClickRequestSchema,
+  ExecuteCommandRequestSchema,
   TerminateAppRequestSchema,
   TypeRequestSchema,
 } from '../../shared/types.js';
@@ -149,6 +150,36 @@ export async function actionRoutes(
           capturedAt: new Date().toISOString(),
         },
       });
+    } catch (err) {
+      if (err instanceof SessionNotActiveError) {
+        return reply.status(409).send({
+          ok: false,
+          error: { code: err.code, message: err.message },
+        });
+      }
+      throw err;
+    }
+  });
+
+  // POST /actions/execute
+  fastify.post('/actions/execute', async (request, reply) => {
+    const parseResult = ExecuteCommandRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: parseResult.error.flatten(),
+        },
+      });
+    }
+
+    try {
+      const driver = sessionManager.getDriver();
+      const { command, params } = parseResult.data;
+      const result = await driver.execute(command, params ?? {});
+      return reply.send({ ok: true, data: { result } });
     } catch (err) {
       if (err instanceof SessionNotActiveError) {
         return reply.status(409).send({

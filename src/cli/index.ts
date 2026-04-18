@@ -13,6 +13,7 @@ import { registerReconnect } from './commands/reconnect.command.js';
 import { registerActivateApp } from './commands/activate-app.command.js';
 import { registerTerminateApp } from './commands/terminate-app.command.js';
 import { registerTakeScreenshot } from './commands/take-screenshot.command.js';
+import { registerExecute } from './commands/execute.command.js';
 
 const program = new Command();
 
@@ -33,6 +34,7 @@ registerReconnect(program);
 registerActivateApp(program);
 registerTerminateApp(program);
 registerTakeScreenshot(program);
+registerExecute(program);
 
 // Global error handler
 async function run() {

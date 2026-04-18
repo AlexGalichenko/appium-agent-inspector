@@ -130,6 +130,25 @@ node dist/cli/index.js take-screenshot --output /tmp/screen.png
 node dist/cli/index.js take-screenshot
 ```
 
+**Execute a mobile command:**
+```bash
+# Scroll down (no return value)
+node dist/cli/index.js execute --command "mobile: scroll" --params '{"direction":"down"}'
+# → Result: null
+
+# Scroll to an element by predicate
+node dist/cli/index.js execute --command "mobile: scroll" --params '{"predicateString":"label == \"Done\""}'
+
+# Get device info (returns JSON object)
+node dist/cli/index.js execute --command "mobile: deviceInfo"
+# → Result: {"udid":"...","name":"iPhone 15",...}
+
+# No params needed
+node dist/cli/index.js execute --command "mobile: pressButton" --params '{"name":"home"}'
+```
+
+`--params` must be a JSON object string. Omit it entirely if the command takes no parameters.
+
 ### 6. Activate or terminate an app
 
 These commands operate on any app by its identifier — they do **not** close the Appium session.
