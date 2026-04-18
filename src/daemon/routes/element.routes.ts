@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import {
   ElementNotFoundError,
   ElementRefNotFoundError,
@@ -23,7 +24,7 @@ export async function elementRoutes(
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request body',
-          details: parseResult.error.flatten(),
+          details: z.prettifyError(parseResult.error),
         },
       });
     }

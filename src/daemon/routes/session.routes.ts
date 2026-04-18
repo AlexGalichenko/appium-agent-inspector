@@ -6,6 +6,7 @@ import {
 import { StartSessionRequestSchema } from '../../shared/types.js';
 import type { SessionManager } from '../session-manager.js';
 import type { ElementRegistry } from '../element-registry.js';
+import { z } from 'zod';
 
 export async function sessionRoutes(
   fastify: FastifyInstance,
@@ -22,7 +23,7 @@ export async function sessionRoutes(
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request body',
-          details: parseResult.error.flatten(),
+          details: z.prettifyError(parseResult.error),
         },
       });
     }

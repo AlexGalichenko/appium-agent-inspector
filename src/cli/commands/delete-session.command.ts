@@ -1,10 +1,10 @@
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
 
-export function registerCloseApp(program: Command): void {
+export function registerDeleteSession(program: Command): void {
   program
-    .command('close-app')
-    .description('Close the current app and terminate the Appium session')
+    .command('delete-session')
+    .description('Close appium session')
     .action(async () => {
       const client = await DaemonClient.fromDaemonState();
       await client.endSession();

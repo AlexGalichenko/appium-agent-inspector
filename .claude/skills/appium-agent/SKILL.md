@@ -264,13 +264,13 @@ node dist/cli/index.js terminate-app com.example.app
 # → "App terminated: com.example.app"  (or "App was not running: ..." if already stopped)
 ```
 
-### 7. Close the app and end the session
+### 7. Close the session
 
 ```bash
-node dist/cli/index.js close-app
+node dist/cli/index.js delete-session
 ```
 
-This deletes the Appium session and clears all stored element references.
+This closes the Appium session and clears all stored element references.
 
 ### 8. Kill the daemon (optional)
 
@@ -290,7 +290,7 @@ References use **selector rehydration**: the daemon re-finds the element at acti
 |---|---|---|
 | `DAEMON_NOT_RUNNING` | Daemon process not found | Run `daemon:start` |
 | `SESSION_NOT_ACTIVE` | No app session open | Run `connect` |
-| `SESSION_ALREADY_ACTIVE` | Session already open | Run `close-app` first, or proceed |
+| `SESSION_ALREADY_ACTIVE` | Session already open | Run `delete-session` first, or proceed |
 | `ELEMENT_NOT_FOUND` | Element not in current view | Check selector / scroll to reveal |
 | `STALE_ELEMENT` | Element was found before but is gone now | Re-run `find-element` |
 | `VALIDATION_ERROR` | Bad input (wrong caps format, empty selector) | Fix the argument |
@@ -321,5 +321,5 @@ node dist/cli/index.js click --strategy "accessibility id" --selector "Login"
 node dist/cli/index.js page-source
 
 # 5. Done
-node dist/cli/index.js close-app
+node dist/cli/index.js delete-session
 ```
