@@ -30,8 +30,7 @@ A CLI daemon for AI-driven mobile UI inspection and automation via [Appium](http
 ## Installation
 
 ```bash
-npm install
-npm run build
+npm install appium-agent-inspector
 ```
 
 ## Quick start
