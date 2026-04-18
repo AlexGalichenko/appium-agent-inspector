@@ -1,6 +1,6 @@
 # appium-agent-inspector
 
-A persistent Appium daemon server with a CLI client, built on [WebdriverIO](https://webdriver.io/). To enable agent tools interact with appium.
+A CLI daemon for AI-driven mobile UI inspection and automation via [Appium](https://appium.io/) and [WebdriverIO](https://webdriver.io/). Exposes a stateful REST API so AI agents can interact with iOS and Android apps through simple shell commands.
 
 ## How it works
 
@@ -37,31 +37,34 @@ npm run build
 ## Quick start
 
 ```bash
+# 0. Start the Appium server (must be running before connecting)
+npx appium
+
 # 1. Start the daemon (runs in the background)
-node dist/cli/index.js daemon:start
+npx appium-agent daemon:start
 
 # 2. Launch an iOS app
-node dist/cli/index.js connect --caps '{
+npx appium-agent connect --caps '{
   "platformName": "iOS",
   "appium:automationName": "XCUITest"
 }'
 
 # 3. Interact with the app
-node dist/cli/index.js find-element --strategy "accessibility id" --selector "Login"
+npx appium-agent find-element --strategy "accessibility id" --selector "Login"
 # → Element found: ID=V1StGXR8_Z5jd
 
-node dist/cli/index.js click --element-id V1StGXR8_Z5jd
-node dist/cli/index.js type --selector "Username" --strategy "accessibility id" --text "admin" --clear
-node dist/cli/index.js page-source > source.yaml
-node dist/cli/index.js take-screenshot --output screen.png
-node dist/cli/index.js video-start
-node dist/cli/index.js video-stop recording.mp4
+npx appium-agent click --element-id V1StGXR8_Z5jd
+npx appium-agent type --selector "Username" --strategy "accessibility id" --text "admin" --clear
+npx appium-agent page-source > source.yaml
+npx appium-agent take-screenshot --output screen.png
+npx appium-agent video-start
+npx appium-agent video-stop recording.mp4
 
 # 4. Close the session
-node dist/cli/index.js delete-session
+npx appium-agent delete-session
 
 # 5. Kill the daemon
-node dist/cli/index.js daemon:kill
+npx appium-agent daemon:kill
 ```
 
 ## CLI reference
