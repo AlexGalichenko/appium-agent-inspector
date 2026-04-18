@@ -131,7 +131,7 @@ describe('Android simple tree', () => {
     expect(toAccessibilityYaml(ANDROID_SIMPLE)).toBe(
       [
         '- framelayout:',
-        '  - button "Login"',
+        '  - button "Login" [clickable, id="btn_login"]',
         '  - checkbox "Remember me" [checked]',
       ].join('\n'),
     );

@@ -84,12 +84,24 @@ function getStates(node: XmlNode, name: string | null): string[] {
   if (attrs['checked'] === 'true') states.push('checked');
   if (attrs['selected'] === 'true') states.push('selected');
   if (attrs['focused'] === 'true') states.push('focused');
+  if (attrs['scrollable'] === 'true') states.push('scrollable');
+  if (attrs['clickable'] === 'true') states.push('clickable');
+  if (attrs['password'] === 'true') states.push('password');
 
   const label = attrs['label'];
   if (label && label !== '' && label !== name) states.push(`label="${label}"`);
 
   const val = attrs['value'];
   if (val && val !== '' && val !== name) states.push(`value="${val}"`);
+
+  const hint = attrs['hint'];
+  if (hint && hint !== '' && hint !== name) states.push(`hint="${hint}"`);
+
+  const resourceId = attrs['resource-id'];
+  if (resourceId && resourceId !== '') {
+    const shortId = resourceId.includes(':id/') ? resourceId.split(':id/')[1]! : resourceId;
+    states.push(`id="${shortId}"`);
+  }
 
   return states;
 }
@@ -98,6 +110,8 @@ function renderNode(node: XmlNode, depth: number): string[] {
   if (WRAPPER_TAGS.has(node.tag)) {
     return node.children.flatMap(c => renderNode(c, depth));
   }
+
+  if (node.attrs['visible'] === 'false') return [];
 
   const name = getName(node);
   const states = getStates(node, name);

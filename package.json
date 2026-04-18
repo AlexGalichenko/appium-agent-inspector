@@ -1,7 +1,7 @@
 {
   "name": "appium-agent-inspector",
   "version": "0.1.0",
-  "description": "Persistent Appium daemon server with CLI client, built on WebdriverIO",
+  "description": "Agent for inspecting Appium sessions, built on WebdriverIO",
   "type": "module",
   "bin": {
     "appium-agent": "./dist/cli/index.js",
@@ -29,6 +29,7 @@
   "devDependencies": {
     "@types/node": "^25.6.0",
     "appium": "^3.3.0",
+    "appium-uiautomator2-driver": "^7.1.2",
     "appium-xcuitest-driver": "^11.0.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
