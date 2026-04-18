@@ -15,8 +15,8 @@
   ],
   "type": "module",
   "bin": {
-    "appium-agent": "./dist/cli/index.js",
-    "appium-daemon": "./dist/daemon/index.js"
+    "appium-agent": "dist/cli/index.js",
+    "appium-daemon": "dist/daemon/index.js"
   },
   "author": "Oleksandr Halchenko",
   "scripts": {
