@@ -1,0 +1,16 @@
+src/
+test/
+.github/
+.claude/
+.appium-agent/
+
+*.tsbuildinfo
+tsconfig*.json
+vitest.config.ts
+
+*.log
+*.tgz
+.env
+.env.*
+node_modules/
+coverage/
