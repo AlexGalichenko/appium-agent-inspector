@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { z } from 'zod';
 import {
   ElementNotFoundError,
   ElementRefNotFoundError,
@@ -32,7 +33,7 @@ export async function actionRoutes(
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request body',
-          details: parseResult.error.flatten(),
+          details: z.prettifyError(parseResult.error),
         },
       });
     }
@@ -60,7 +61,7 @@ export async function actionRoutes(
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request body',
-          details: parseResult.error.flatten(),
+          details: z.prettifyError(parseResult.error),
         },
       });
     }
@@ -91,7 +92,7 @@ export async function actionRoutes(
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request body',
-          details: parseResult.error.flatten(),
+          details: z.prettifyError(parseResult.error),
         },
       });
     }
@@ -120,7 +121,7 @@ export async function actionRoutes(
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request body',
-          details: parseResult.error.flatten(),
+          details: z.prettifyError(parseResult.error),
         },
       });
     }
@@ -172,7 +173,7 @@ export async function actionRoutes(
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request body',
-          details: parseResult.error.flatten(),
+          details: z.prettifyError(parseResult.error),
         },
       });
     }
@@ -202,7 +203,7 @@ export async function actionRoutes(
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request body',
-          details: parseResult.error.flatten(),
+          details: z.prettifyError(parseResult.error),
         },
       });
     }
@@ -270,7 +271,7 @@ export async function actionRoutes(
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Invalid request body',
-          details: parseResult.error.flatten(),
+          details: z.prettifyError(parseResult.error),
         },
       });
     }

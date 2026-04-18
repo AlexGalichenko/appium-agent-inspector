@@ -31,7 +31,7 @@ export function registerConnect(program: Command): void {
       const result = await client.startSession({ capabilities: caps, server });
 
       console.log(`Session started: ${result.sessionId}`);
-      console.log(`Started at:      ${result.startedAt}`);
+      console.log(`Started at: ${result.startedAt}`);
     });
 }
 
