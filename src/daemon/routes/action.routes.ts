@@ -9,6 +9,7 @@ import {
   ActivateAppRequestSchema,
   ClickRequestSchema,
   ExecuteCommandRequestSchema,
+  GetLocationRequestSchema,
   TerminateAppRequestSchema,
   TypeRequestSchema,
 } from '../../shared/types.js';
@@ -188,6 +189,34 @@ export async function actionRoutes(
         });
       }
       throw err;
+    }
+  });
+
+  // POST /actions/location
+  fastify.post('/actions/location', async (request, reply) => {
+    const parseResult = GetLocationRequestSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid request body',
+          details: parseResult.error.flatten(),
+        },
+      });
+    }
+
+    try {
+      const body = parseResult.data;
+      const element =
+        'elementId' in body
+          ? await elementRegistry.retrieveElement(body.elementId, sessionManager)
+          : await elementRegistry.findElement(body.strategy, body.selector, sessionManager);
+
+      const [location, size] = await Promise.all([element.getLocation(), element.getSize()]);
+      return reply.send({ ok: true, data: { x: location.x, y: location.y, width: size.width, height: size.height } });
+    } catch (err) {
+      return handleActionError(err, reply);
     }
   });
 

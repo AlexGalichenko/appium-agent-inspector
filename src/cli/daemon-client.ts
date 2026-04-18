@@ -3,11 +3,13 @@ import type {
   ActivateAppRequest,
   ApiResponse,
   ClickRequest,
+  ElementRectResponse,
   ElementReference,
   ExecuteCommandRequest,
   ExecuteCommandResponse,
   FindElementRequest,
   FindElementResponse,
+  GetLocationRequest,
   PageSourceResponse,
   ScreenshotResponse,
   StartSessionRequest,
@@ -103,6 +105,10 @@ export class DaemonClient {
 
   async getPageSource(): Promise<PageSourceResponse> {
     return this.request<PageSourceResponse>('GET', '/actions/page-source');
+  }
+
+  async getElementLocation(req: GetLocationRequest): Promise<ElementRectResponse> {
+    return this.request<ElementRectResponse>('POST', '/actions/location', req);
   }
 
   async startVideoRecording(): Promise<void> {

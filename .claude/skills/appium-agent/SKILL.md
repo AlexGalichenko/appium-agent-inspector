@@ -136,6 +136,19 @@ node dist/cli/index.js take-screenshot --output /tmp/screen.png
 node dist/cli/index.js take-screenshot
 ```
 
+**Get element location and size:**
+```bash
+# By stored reference
+node dist/cli/index.js get-location --element-id V1StGXR8_Z5jd
+
+# Or inline
+node dist/cli/index.js get-location --strategy "accessibility id" --selector "Login"
+# → x:      115
+# → y:      796
+# → width:  58
+# → height: 42
+```
+
 **Record video:**
 ```bash
 # Start recording

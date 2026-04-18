@@ -101,6 +101,7 @@ Supported locator strategies: `accessibility id`, `id`, `xpath`, `class name`, `
 | `take-screenshot` | `--output <path>` | Capture the device screen. Saves a PNG to `--output`; prints base64 to stdout when omitted. |
 | `video-start` | — | Start video recording of the device screen. |
 | `video-stop [output]` | — | Stop video recording. Saves MP4 to `output` path when provided; prints base64 to stdout when omitted. |
+| `get-location` | `--element-id <id>` **or** `--strategy` + `--selector` | Get the position and size (`x`, `y`, `width`, `height`) of an element. |
 | `activate-app <appId>` | — | Bring an app to the foreground without ending the session. iOS: bundle ID, Android: package name. |
 | `terminate-app <appId>` | — | Terminate a running app. Prints whether the app was actually running. |
 
@@ -143,6 +144,7 @@ The daemon exposes a JSON REST API on `127.0.0.1:47321`. All responses use the e
 | `POST` | `/actions/terminate-app` | Terminate a running app (`{ appId }` body). |
 | `POST` | `/actions/video-start` | Start screen recording. |
 | `POST` | `/actions/video-stop` | Stop screen recording (returns base64-encoded MP4). |
+| `POST` | `/actions/location` | Get element position and size (`ElementTarget` body, returns `{x, y, width, height}`). |
 | `POST` | `/daemon/shutdown` | Gracefully shut down the daemon. |
 
 ## Development

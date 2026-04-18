@@ -110,6 +110,16 @@ const ElementTargetSchema = z.union([
 export const ClickRequestSchema = ElementTargetSchema;
 export type ClickRequest = z.infer<typeof ClickRequestSchema>;
 
+export const GetLocationRequestSchema = ElementTargetSchema;
+export type GetLocationRequest = z.infer<typeof GetLocationRequestSchema>;
+
+export interface ElementRectResponse {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export const TypeRequestSchema = ElementTargetSchema.and(
   z.object({
     text: z.string(),
