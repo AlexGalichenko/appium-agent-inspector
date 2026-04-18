@@ -59,13 +59,19 @@ Optional server flags: `--server-host`, `--server-port` (default `localhost:4723
 
 ### 3. Get page source to discover locators
 
-**Always fetch the page source before attempting to find or interact with any element.** The XML reveals the actual accessibility IDs, labels, and element types present on screen — do not guess selectors.
+**Always fetch the page source before attempting to find or interact with any element.** Do not guess selectors.
+
+```bash
+node dist/cli/index.js page-source
+```
+
+`page-source` outputs a compact accessibility tree (YAML). Read it to identify element roles, names, and state attributes, then use those as selectors for `find-element`.
+
+If `find-element` fails with `ELEMENT_NOT_FOUND`, fall back to the full raw XML to check for attributes not shown in the accessibility tree (e.g. `resource-id`, `xpath`-only identifiers):
 
 ```bash
 node dist/cli/index.js page-source --raw > /tmp/page.xml
 ```
-
-Read `/tmp/page.xml` to identify available `name`, `label`, `value`, and `type` attributes. Use these to build accurate locators before calling `find-element`.
 
 ### 4. Find elements
 
@@ -112,12 +118,12 @@ node dist/cli/index.js type --element-id V1StGXR8_Z5jd --text "admin" --clear
 node dist/cli/index.js type --strategy "id" --selector "username_field" --text "admin"
 ```
 
-**Get page source (XML):**
+**Get page source:**
 ```bash
-# With header showing capture timestamp
+# Accessibility tree (default — compact YAML, use this first)
 node dist/cli/index.js page-source
 
-# Raw XML only (useful for piping or saving)
+# Full raw XML (fallback when element not found via accessibility tree)
 node dist/cli/index.js page-source --raw > /tmp/page.xml
 ```
 
@@ -206,9 +212,9 @@ References use **selector rehydration**: the daemon re-finds the element at acti
 node dist/cli/index.js daemon:start
 node dist/cli/index.js connect --caps '{"platformName":"iOS","appium:automationName":"XCUITest","appium:deviceName":"iPhone 15","appium:bundleId":"com.example.app"}'
 
-# 2. Inspect the screen to discover locators
-node dist/cli/index.js page-source --raw > /tmp/page.xml
-# → Read /tmp/page.xml to find correct accessibility IDs, labels, and element types
+# 2. Inspect the screen via accessibility tree
+node dist/cli/index.js page-source
+# → Read the YAML to find element roles and names for selectors
 
 # 3. Fill login form
 node dist/cli/index.js find-element --strategy "accessibility id" --selector "Username"
@@ -222,7 +228,7 @@ node dist/cli/index.js type --element-id ref-def --text "secret" --clear
 node dist/cli/index.js click --strategy "accessibility id" --selector "Login"
 
 # 4. Inspect the next screen
-node dist/cli/index.js page-source --raw
+node dist/cli/index.js page-source
 
 # 5. Done
 node dist/cli/index.js close-app
