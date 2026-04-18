@@ -5,6 +5,7 @@ import {
   AppiumServerConfigSchema,
   ClickRequestSchema,
   FindElementRequestSchema,
+  GetAttributeRequestSchema,
   LocatorStrategySchema,
   PerformActionRequestSchema,
   StartSessionRequestSchema,
@@ -313,6 +314,37 @@ describe('PerformActionRequestSchema', () => {
     it('rejects a number', () => {
       expect(PerformActionRequestSchema.safeParse(42).success).toBe(false);
     });
+  });
+});
+
+describe('GetAttributeRequestSchema', () => {
+  it('accepts elementId + attribute', () => {
+    const result = GetAttributeRequestSchema.safeParse({ elementId: 'ref-1', attribute: 'value' });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts strategy+selector + attribute', () => {
+    const result = GetAttributeRequestSchema.safeParse({
+      strategy: 'accessibility id',
+      selector: 'Login',
+      attribute: 'enabled',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects missing attribute', () => {
+    const result = GetAttributeRequestSchema.safeParse({ elementId: 'ref-1' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects empty attribute', () => {
+    const result = GetAttributeRequestSchema.safeParse({ elementId: 'ref-1', attribute: '' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects missing element target', () => {
+    const result = GetAttributeRequestSchema.safeParse({ attribute: 'value' });
+    expect(result.success).toBe(false);
   });
 });
 

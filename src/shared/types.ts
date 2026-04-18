@@ -150,6 +150,17 @@ export const InstallAppRequestSchema = z.object({
 
 export type InstallAppRequest = z.infer<typeof InstallAppRequestSchema>;
 
+export const GetAttributeRequestSchema = ElementTargetSchema.and(
+  z.object({ attribute: z.string().min(1) }),
+);
+
+export type GetAttributeRequest = z.infer<typeof GetAttributeRequestSchema>;
+
+export interface GetAttributeResponse {
+  attribute: string;
+  value: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Execute command request / response
 // ---------------------------------------------------------------------------

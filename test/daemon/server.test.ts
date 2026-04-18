@@ -33,6 +33,7 @@ const MOCK_ELEMENT = {
   click: vi.fn().mockResolvedValue(undefined),
   setValue: vi.fn().mockResolvedValue(undefined),
   clearValue: vi.fn().mockResolvedValue(undefined),
+  getAttribute: vi.fn().mockResolvedValue('1'),
   getLocation: vi.fn().mockResolvedValue({ x: 10, y: 20 }),
   getSize: vi.fn().mockResolvedValue({ width: 100, height: 50 }),
 };
@@ -471,6 +472,101 @@ describe('buildServer', () => {
         method: 'POST',
         url: '/actions/terminate-app',
         payload: { appId: 'com.example.app' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(JSON.parse(res.body).error.code).toBe('SESSION_NOT_ACTIVE');
+    });
+  });
+
+  // ── get-attribute route ───────────────────────────────────────────────────
+
+  describe('POST /actions/attribute', () => {
+    it('returns attribute value by element reference id', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/attribute',
+        payload: { elementId: 'ref-1', attribute: 'value' },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(true);
+      expect(body.data.attribute).toBe('value');
+      expect(body.data.value).toBe('1');
+      expect(MOCK_ELEMENT.getAttribute).toHaveBeenCalledWith('value');
+    });
+
+    it('returns attribute value by strategy and selector', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/attribute',
+        payload: { strategy: 'accessibility id', selector: '~Login', attribute: 'enabled' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(elementRegistry.findElement).toHaveBeenCalled();
+      expect(MOCK_ELEMENT.getAttribute).toHaveBeenCalledWith('enabled');
+    });
+
+    it('returns null when attribute is absent', async () => {
+      vi.mocked(MOCK_ELEMENT.getAttribute).mockResolvedValueOnce(null);
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/attribute',
+        payload: { elementId: 'ref-1', attribute: 'label' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data.value).toBeNull();
+    });
+
+    it('returns 400 for missing attribute', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/attribute',
+        payload: { elementId: 'ref-1' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 400 for missing element target', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/attribute',
+        payload: { attribute: 'value' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('returns 404 when element is not found', async () => {
+      vi.mocked(elementRegistry.findElement).mockRejectedValueOnce(
+        new ElementNotFoundError('accessibility id', '~Missing'),
+      );
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/attribute',
+        payload: { strategy: 'accessibility id', selector: '~Missing', attribute: 'value' },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('returns 410 for stale element', async () => {
+      vi.mocked(elementRegistry.retrieveElement).mockRejectedValueOnce(
+        new StaleElementError('ref-1', '~Login'),
+      );
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/attribute',
+        payload: { elementId: 'ref-1', attribute: 'value' },
+      });
+      expect(res.statusCode).toBe(410);
+    });
+
+    it('returns 409 when no session is active', async () => {
+      vi.mocked(elementRegistry.retrieveElement).mockRejectedValueOnce(new SessionNotActiveError());
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/attribute',
+        payload: { elementId: 'ref-1', attribute: 'value' },
       });
       expect(res.statusCode).toBe(409);
       expect(JSON.parse(res.body).error.code).toBe('SESSION_NOT_ACTIVE');

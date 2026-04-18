@@ -9,6 +9,8 @@ import type {
   ExecuteCommandResponse,
   FindElementRequest,
   FindElementResponse,
+  GetAttributeRequest,
+  GetAttributeResponse,
   GetLocationRequest,
   InstallAppRequest,
   PageSourceResponse,
@@ -111,6 +113,10 @@ export class DaemonClient {
 
   async getPageSource(): Promise<PageSourceResponse> {
     return this.request<PageSourceResponse>('GET', '/actions/page-source');
+  }
+
+  async getAttribute(req: GetAttributeRequest): Promise<GetAttributeResponse> {
+    return this.request<GetAttributeResponse>('POST', '/actions/attribute', req);
   }
 
   async getElementLocation(req: GetLocationRequest): Promise<ElementRectResponse> {
