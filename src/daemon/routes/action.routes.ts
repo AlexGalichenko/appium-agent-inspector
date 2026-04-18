@@ -191,6 +191,46 @@ export async function actionRoutes(
     }
   });
 
+  // POST /actions/video-start
+  fastify.post('/actions/video-start', async (_request, reply) => {
+    try {
+      const driver = sessionManager.getDriver();
+      await driver.startRecordingScreen();
+      return reply.send({
+        ok: true,
+        data: { message: 'Recording started', startedAt: new Date().toISOString() },
+      });
+    } catch (err) {
+      if (err instanceof SessionNotActiveError) {
+        return reply.status(409).send({
+          ok: false,
+          error: { code: err.code, message: err.message },
+        });
+      }
+      throw err;
+    }
+  });
+
+  // POST /actions/video-stop
+  fastify.post('/actions/video-stop', async (_request, reply) => {
+    try {
+      const driver = sessionManager.getDriver();
+      const data = await driver.stopRecordingScreen();
+      return reply.send({
+        ok: true,
+        data: { data, stoppedAt: new Date().toISOString() },
+      });
+    } catch (err) {
+      if (err instanceof SessionNotActiveError) {
+        return reply.status(409).send({
+          ok: false,
+          error: { code: err.code, message: err.message },
+        });
+      }
+      throw err;
+    }
+  });
+
   // GET /actions/page-source
   fastify.get('/actions/page-source', async (_request, reply) => {
     try {

@@ -39,6 +39,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     'application/json',
     { parseAs: 'string' },
     (req, body, done) => {
+      if (!body) {
+        done(null, null);
+        return;
+      }
       try {
         done(null, JSON.parse(body as string));
       } catch (err) {

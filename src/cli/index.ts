@@ -14,6 +14,8 @@ import { registerActivateApp } from './commands/activate-app.command.js';
 import { registerTerminateApp } from './commands/terminate-app.command.js';
 import { registerTakeScreenshot } from './commands/take-screenshot.command.js';
 import { registerExecute } from './commands/execute.command.js';
+import { registerVideoStart } from './commands/video-start.command.js';
+import { registerVideoStop } from './commands/video-stop.command.js';
 
 const program = new Command();
 
@@ -35,6 +37,8 @@ registerActivateApp(program);
 registerTerminateApp(program);
 registerTakeScreenshot(program);
 registerExecute(program);
+registerVideoStart(program);
+registerVideoStop(program);
 
 // Global error handler
 async function run() {
