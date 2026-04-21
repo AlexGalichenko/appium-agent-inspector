@@ -1,7 +1,6 @@
 src/
 test/
 .github/
-.claude/
 .appium-agent/
 
 *.tsbuildinfo
