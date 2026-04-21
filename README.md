@@ -66,7 +66,23 @@ npx appium-agent delete-session
 npx appium-agent daemon:kill
 ```
 
+## Claude skill
+
+`appium-agent` ships with a Claude skill that teaches AI agents how to use all CLI commands. Install it into your project with:
+
+```bash
+npx appium-agent install --skill
+```
+
+This copies `.claude/skills/appium-agent/SKILL.md` into the current working directory, making the skill available to Claude Code and compatible AI agents in that project.
+
 ## CLI reference
+
+### Setup
+
+| Command | Options | Description |
+|---|---|---|
+| `install` | `--skill` | Install the bundled Claude skill into `.claude/skills/appium-agent/` in the current project. |
 
 ### Daemon lifecycle
 

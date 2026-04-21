@@ -18,13 +18,14 @@ import { registerVideoStop } from './commands/video-stop.command.js';
 import { registerGetAttribute } from './commands/get-attribute.command.js';
 import { registerGetLocation } from './commands/get-location.command.js';
 import { registerPerformAction } from './commands/perform-action.command.js';
+import { registerInstall } from './commands/install.command.js';
 
 const program = new Command();
 
 program
   .name('appium-agent')
   .description('Appium daemon CLI — persistent session management for mobile automation')
-  .version('0.1.0');
+  .version('0.2.0');
 
 registerStartDaemon(program);
 registerKillDaemon(program);
@@ -43,6 +44,7 @@ registerVideoStop(program);
 registerGetAttribute(program);
 registerGetLocation(program);
 registerPerformAction(program);
+registerInstall(program);
 
 // Global error handler
 async function run() {

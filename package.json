@@ -1,6 +1,6 @@
 {
   "name": "appium-agent-inspector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI daemon for AI-driven mobile UI inspection and automation via Appium",
   "keywords": [
     "appium",
