@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-04-21
+
+### Added
+
+- **`install --skill`** — installs the bundled Claude skill (`SKILL.md`) into `.claude/skills/appium-agent/` in the current project directory, enabling AI agents to discover and use `appium-agent` commands automatically.
+
 ## [0.1.0] — 2026-04-18
 
 ### Added
