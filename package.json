@@ -18,6 +18,7 @@
     "appium-agent": "dist/cli/index.js",
     "appium-daemon": "dist/daemon/index.js"
   },
+  "license": "MIT",
   "author": "Oleksandr Halchenko",
   "repository": {
     "type": "git",
