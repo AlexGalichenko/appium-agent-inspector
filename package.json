@@ -13,13 +13,7 @@
     "ai-agent",
     "webdriverio"
   ],
-  "license": "MIT",
-  "author": "Oleksandr Halchenko",
   "homepage": "https://github.com/AlexGalichenko/appium-agent-inspector#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/AlexGalichenko/appium-agent-inspector.git"
-  },
   "bugs": {
     "url": "https://github.com/AlexGalichenko/appium-agent-inspector/issues"
   },
@@ -28,8 +22,11 @@
     "appium-agent": "dist/cli/index.js",
     "appium-daemon": "dist/daemon/index.js"
   },
-  "engines": {
-    "node": ">=20.19.0"
+  "license": "MIT",
+  "author": "Oleksandr Halchenko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlexGalichenko/appium-agent-inspector.git"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
