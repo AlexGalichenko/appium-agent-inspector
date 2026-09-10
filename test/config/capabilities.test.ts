@@ -52,7 +52,10 @@ describe('buildAndroidCapabilities', () => {
   });
 
   it('uses Espresso when flag is set', () => {
-    const caps = buildAndroidCapabilities({ deviceName: 'emulator-5554', useEspresso: true });
+    const caps = buildAndroidCapabilities({
+      deviceName: 'emulator-5554',
+      useEspresso: true,
+    });
     expect(caps['appium:automationName']).toBe('Espresso');
   });
 

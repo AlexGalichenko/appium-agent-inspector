@@ -23,7 +23,7 @@ A CLI daemon for AI-driven mobile UI inspection and automation via [Appium](http
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 20.19+
 - Appium running on `localhost:4723` (or a custom host/port)
 - Xcode / Android SDK for the target platform
 
@@ -49,12 +49,14 @@ npx appium-agent connect --caps '{
 }'
 
 # 3. Interact with the app
+npx appium-agent page-source                       # compact accessibility tree
 npx appium-agent find-element --strategy "accessibility id" --selector "Login"
 # → Element found: ID=V1StGXR8_Z5jd
 
 npx appium-agent click --element-id V1StGXR8_Z5jd
 npx appium-agent type --selector "Username" --strategy "accessibility id" --text "admin" --clear
-npx appium-agent page-source > source.yaml
+npx appium-agent wait --strategy "accessibility id" --selector "Dashboard" --for displayed
+npx appium-agent scroll --direction down --to-strategy "accessibility id" --to-selector "Submit"
 npx appium-agent take-screenshot --output screen.png
 npx appium-agent video-start
 npx appium-agent video-stop recording.mp4
@@ -88,21 +90,25 @@ This copies `.claude/skills/appium-agent/SKILL.md` into the current working dire
 
 | Command | Description |
 |---|---|
-| `daemon:start [--foreground]` | Start the daemon. Runs detached by default; `--foreground` keeps it in the terminal. |
-| `daemon:kill` | Kill the running daemon process by PID and remove its state file. |
+| `daemon:start [--foreground] [--port <port>]` | Start the daemon. Runs detached by default; `--foreground` keeps it in the terminal. Without `--port` it binds 47321, falling back to the next free port. Safe to call repeatedly — it is a no-op when a daemon is already answering. |
+| `daemon:kill` | Stop the running daemon, wait for it to exit, and remove its state file. |
 
 ### Session
 
 | Command | Options | Description |
 |---|---|---|
-| `connect` | `--caps <json>` · `--server-host` · `--server-port` · `--server-path` | Create an Appium session. `--caps` accepts a JSON string. |
-| `delete-session` | — | Close appium session and clear all element references. |
+| `connect` | `--caps <json\|path>` · `--server-host` · `--server-port` · `--server-path` | Create an Appium session. `--caps` accepts an inline JSON object **or** a path to a `.json` file. |
+| `delete-session` | — | Close the Appium session and clear all element references. |
+| `session-status` | — | Report whether a session is active, with its ID and start time. |
+| `device-info` | — | Screen size, orientation, platform, and current context. Use the screen size to compute gesture coordinates. |
+| `context` | `--switch <name>` | List native/webview contexts (the current one is marked `*`), or switch to one. Required for hybrid apps and web views. |
 
 ### Elements
 
 | Command | Options | Description |
 |---|---|---|
-| `find-element` | `--strategy <strategy>` · `--selector <value>` | Find an element and store a reusable reference. Prints the element ID. |
+| `find-element` | `--strategy <strategy>` · `--selector <value>` · `--index <n>` · `--all` | Find an element and store a reusable reference. Prints the element ID, and warns when the selector is ambiguous. `--index` picks a specific match; `--all` stores a reference for every match. |
+| `wait` | `--strategy` · `--selector` · `--for <condition>` · `--timeout <ms>` | Block until an element is `displayed` (default), `existing`, `enabled`, or `gone`. Fails with `WAIT_TIMEOUT` rather than hanging. |
 
 Supported locator strategies: `accessibility id`, `id`, `xpath`, `class name`, `-android uiautomator`, `-ios predicate string`, `-ios class chain`, `css selector`.
 
@@ -110,12 +116,14 @@ Supported locator strategies: `accessibility id`, `id`, `xpath`, `class name`, `
 
 | Command | Options | Description |
 |---|---|---|
-| `click` | `--element-id <id>` **or** `--strategy` + `--selector` | Tap an element. |
+| `click` | `--element-id <id>` **or** `--strategy` + `--selector` · `--index <n>` | Tap an element. |
 | `type` | `--text <text>` · `--element-id <id>` **or** `--strategy` + `--selector` · `--clear` | Type text. Pass `--clear` to clear the field first. |
-| `page-source` | `--raw` | Print the accessibility tree as YAML (default). `--raw` prints the full XML including layout attributes. |
-| `take-screenshot` | `--output <path>` | Capture the device screen. Saves a PNG to `--output`; prints base64 to stdout when omitted. |
+| `get-text` | `--element-id <id>` **or** `--strategy` + `--selector` | Read an element's visible text. |
+| `scroll` | `--direction <dir>` · `--percent <n>` · `--to-strategy` + `--to-selector` · `--max-swipes <n>` | Scroll `up`/`down`/`left`/`right`. With a target it swipes repeatedly until that element is genuinely on screen, or `--max-swipes` is reached. |
+| `page-source` | `--raw` · `--bounds` | Print the accessibility tree (default). `--bounds` adds each element's centre point and size so you can tap by coordinate. `--raw` prints the full XML. |
+| `take-screenshot` | `--output <path>` · `--base64` | Capture the device screen. Saves a PNG and prints its path; `--base64` prints raw base64 to stdout instead. |
 | `video-start` | — | Start video recording of the device screen. |
-| `video-stop [output]` | — | Stop video recording. Saves MP4 to `output` path when provided; prints base64 to stdout when omitted. |
+| `video-stop [output]` | `--base64` | Stop video recording. Saves an MP4 and prints its path; `--base64` prints raw base64 instead. |
 | `get-attribute` | `--attribute <name>` · `--element-id <id>` **or** `--strategy` + `--selector` | Get an attribute value of an element (e.g. `value`, `label`, `enabled`). |
 | `get-location` | `--element-id <id>` **or** `--strategy` + `--selector` | Get the position and size (`x`, `y`, `width`, `height`) of an element. |
 | `perform-action` | `<json>` | Perform a touch gesture or raw W3C actions sequence. Accepts a JSON object (`tap`, `swipe`, `long-press`) or a W3C actions array for multi-touch. |
@@ -129,21 +137,47 @@ Supported locator strategies: `accessibility id`, `id`, `xpath`, `class name`, `
 
 References use **selector rehydration**: the daemon stores the strategy + selector, not the raw WebDriver element handle. Each action re-finds the element at call time, which prevents stale-element errors caused by view-hierarchy changes or RecyclerView recycling. If the element can no longer be found, a `STALE_ELEMENT` error is returned with the original selector in the message.
 
+## JSON output
+
+Every command accepts a global `--json` flag, which replaces the human-readable text with a machine-readable JSON document. Errors are printed to stderr as JSON too, and the exit code is still non-zero:
+
+```bash
+npx appium-agent --json device-info
+npx appium-agent --json find-element --strategy "accessibility id" --selector Login
+```
+
 ## Daemon state
 
-The daemon writes `PID` and `port` to `.appium-agent/daemon.json` in the project directory on startup, and removes it on clean shutdown. The CLI reads this file to locate the running daemon. The `.appium-agent/` directory is gitignored.
+On startup the daemon writes its PID, port, and access token to `~/.appium-agent/daemon.json`, and its output to `~/.appium-agent/daemon.log`. The CLI reads the state file to find the daemon; the log is where startup failures (a busy port, a bad Node version) are reported.
+
+State deliberately lives in your home directory rather than the package directory: an installed package may be read-only, is wiped on every reinstall, and is shared across every project on the machine.
+
+Set `APPIUM_AGENT_HOME` to relocate it — useful for running isolated daemons side by side:
+
+```bash
+APPIUM_AGENT_HOME=/tmp/agent-a npx appium-agent daemon:start --port 47400
+APPIUM_AGENT_HOME=/tmp/agent-b npx appium-agent daemon:start --port 47500
+```
+
+## Security
+
+The daemon binds `127.0.0.1` only, and every route except `/health` requires the token recorded in the state file. The CLI sends it automatically. This keeps other local processes from driving your device, since `/actions/execute` can run arbitrary Appium commands. Anyone able to read your state file can use the daemon, so treat it as you would any other credential in your home directory.
 
 ## Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `DAEMON_PORT` | `47321` | TCP port the daemon listens on. |
+| `APPIUM_AGENT_HOME` | `~/.appium-agent` | Directory for the daemon state file and log. `XDG_STATE_HOME` is honoured when this is unset. |
+| `DAEMON_PORT` | `47321` | Default TCP port. `daemon:start --port` overrides it; either way the daemon falls back to the next free port when the requested one is busy. |
+| `APPIUM_AGENT_TOKEN` | random | Fixes the daemon's access token instead of generating one per start. |
 | `LOG_LEVEL` | `info` | Pino log level (`trace`, `debug`, `info`, `warn`, `error`, `silent`). |
-| `NODE_ENV` | — | Set to `production` to disable pretty-printing and error detail in 500 responses. |
+| `NODE_ENV` | — | Set to `production` to disable pretty-printing. |
 
 ## HTTP API
 
 The daemon exposes a JSON REST API on `127.0.0.1:47321`. All responses use the envelope `{ "ok": true, "data": … }` on success and `{ "ok": false, "error": { "code": "…", "message": "…" } }` on failure.
+
+Every route except `GET /health` requires the daemon token in an `x-appium-agent-token` header.
 
 | Method | Path | Description |
 |---|---|---|
@@ -151,11 +185,17 @@ The daemon exposes a JSON REST API on `127.0.0.1:47321`. All responses use the e
 | `POST` | `/session` | Start an Appium session (`StartSessionRequest` body). |
 | `DELETE` | `/session` | Close the active session. |
 | `GET` | `/session` | Get current session status and metadata. |
+| `GET` | `/session/contexts` | List native/webview contexts and the current one. |
+| `POST` | `/session/context` | Switch context (`{ name }` body). |
+| `GET` | `/session/device` | Screen size, orientation, platform, current context. |
 | `POST` | `/elements/find` | Find an element and store a reference. |
+| `POST` | `/elements/wait` | Wait for an element condition (`{ strategy, selector, condition, timeout }` body). |
 | `GET` | `/elements` | List all stored element references. |
 | `GET` | `/elements/:id` | Inspect a stored element reference. |
 | `POST` | `/actions/click` | Click an element. |
 | `POST` | `/actions/type` | Type text into an element. |
+| `POST` | `/actions/text` | Read an element's visible text. |
+| `POST` | `/actions/scroll` | Scroll the screen, optionally until an element is in view. |
 | `GET` | `/actions/page-source` | Get the current XML page source. |
 | `GET` | `/actions/screenshot` | Capture a screenshot (returns base64-encoded PNG). |
 | `POST` | `/actions/install-app` | Install an app on the device (`{ appPath }` body). |
@@ -168,32 +208,48 @@ The daemon exposes a JSON REST API on `127.0.0.1:47321`. All responses use the e
 | `POST` | `/actions/perform` | Perform a touch gesture or raw W3C actions sequence (gesture object or actions array body). |
 | `POST` | `/daemon/shutdown` | Gracefully shut down the daemon. |
 
+### Error codes
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `VALIDATION_ERROR` | 400 | The request body or CLI arguments were malformed. |
+| `UNAUTHORIZED` | 401 | Missing or wrong daemon token. |
+| `SESSION_NOT_ACTIVE` | 409 | No session; run `connect` first. |
+| `SESSION_ALREADY_ACTIVE` | 409 | A session is already running; run `delete-session` first. |
+| `ELEMENT_NOT_FOUND` | 404 | The selector matched nothing. |
+| `ELEMENT_REF_NOT_FOUND` | 404 | Unknown element reference; re-run `find-element`. |
+| `CONTEXT_NOT_FOUND` | 404 | The requested context is not available. |
+| `WAIT_TIMEOUT` | 408 | The wait condition was not met in time. |
+| `STALE_ELEMENT` | 410 | The referenced element left the view hierarchy. |
+| `DAEMON_NOT_RUNNING` | — | No daemon is answering; run `daemon:start`. |
+| `DAEMON_TIMEOUT` | — | The daemon did not respond; check `~/.appium-agent/daemon.log`. |
+
 ## Development
 
 ```bash
-# Type-check
-npm run typecheck
-
-# Run in watch mode (daemon)
-npm run dev:daemon
-
-# Run tests
-npm test
-npm run test:watch
+npm run lint          # oxlint
+npm run format        # prettier
+npm run typecheck     # tsc over src and test
+npm test              # vitest
+npm run test:coverage
+npm run dev:daemon    # daemon in watch mode
 ```
+
+The daemon is a long-lived process: after `npm run build`, restart it with
+`npm run build && npx appium-agent daemon:kill && npx appium-agent daemon:start`,
+or use `npm run dev:daemon`, which reloads on change.
 
 ## Project structure
 
 ```
 src/
-├── shared/          # Zod schemas, error classes, constants, logger
+├── shared/          # Zod schemas, error classes, constants, logger, daemon state file
 ├── config/          # Appium capability builder helpers
 ├── daemon/
 │   ├── routes/      # Fastify route handlers (session, elements, actions)
 │   ├── server.ts    # Fastify server factory
 │   ├── session-manager.ts   # WebdriverIO session lifecycle
 │   ├── element-registry.ts  # Selector-rehydration element store
-│   ├── pid-file.ts          # Daemon state persistence
 │   └── index.ts             # Daemon process entry point
 └── cli/
     ├── commands/    # One file per CLI command

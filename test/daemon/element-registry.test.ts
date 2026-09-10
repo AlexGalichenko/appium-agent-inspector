@@ -50,7 +50,11 @@ describe('ElementRegistry', () => {
 
   describe('store and retrieve', () => {
     it('stores a ref and returns it from retrieve()', () => {
-      const ref = registry.store({ selector: '~Login', strategy: 'accessibility id', sessionId: 's1' });
+      const ref = registry.store({
+        selector: '~Login',
+        strategy: 'accessibility id',
+        sessionId: 's1',
+      });
       expect(ref.id).toBeTruthy();
       expect(ref.selector).toBe('~Login');
       expect(ref.strategy).toBe('accessibility id');
@@ -61,8 +65,16 @@ describe('ElementRegistry', () => {
     });
 
     it('generates unique IDs for multiple stored refs', () => {
-      const a = registry.store({ selector: '~A', strategy: 'accessibility id', sessionId: 's1' });
-      const b = registry.store({ selector: '~B', strategy: 'accessibility id', sessionId: 's1' });
+      const a = registry.store({
+        selector: '~A',
+        strategy: 'accessibility id',
+        sessionId: 's1',
+      });
+      const b = registry.store({
+        selector: '~B',
+        strategy: 'accessibility id',
+        sessionId: 's1',
+      });
       expect(a.id).not.toBe(b.id);
     });
 
@@ -110,7 +122,9 @@ describe('ElementRegistry', () => {
     });
 
     it('calls driver.$() with the correct selector for each strategy', async () => {
-      const cases: Array<[import('../shared/types.js').LocatorStrategy, string, string]> = [
+      const cases: Array<
+        [import('../../src/shared/types.js').LocatorStrategy, string, string]
+      > = [
         ['accessibility id', 'Login', '~Login'],
         ['id', 'btn', 'id=btn'],
         ['-android uiautomator', 'text("OK")', 'android=text("OK")'],
@@ -141,7 +155,11 @@ describe('ElementRegistry', () => {
     it('returns the element when it exists', async () => {
       const element = makeElement(true);
       const sm = makeSessionManager(element);
-      const ref = registry.store({ selector: '~Login', strategy: 'accessibility id', sessionId: 'sess-1' });
+      const ref = registry.store({
+        selector: '~Login',
+        strategy: 'accessibility id',
+        sessionId: 'sess-1',
+      });
 
       const result = await registry.retrieveElement(ref.id, sm);
       expect(result).toBe(element);
@@ -158,9 +176,129 @@ describe('ElementRegistry', () => {
     it('throws StaleElementError when element no longer exists', async () => {
       const element = makeElement(false);
       const sm = makeSessionManager(element);
-      const ref = registry.store({ selector: '~Gone', strategy: 'accessibility id', sessionId: 'sess-1' });
+      const ref = registry.store({
+        selector: '~Gone',
+        strategy: 'accessibility id',
+        sessionId: 'sess-1',
+      });
 
-      await expect(registry.retrieveElement(ref.id, sm)).rejects.toThrow(StaleElementError);
+      await expect(registry.retrieveElement(ref.id, sm)).rejects.toThrow(
+        StaleElementError,
+      );
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ambiguous selectors — index lets callers reach matches beyond the first.
+// ---------------------------------------------------------------------------
+
+describe('ElementRegistry with ambiguous selectors', () => {
+  function makeManager(elements: unknown[]) {
+    const driver = {
+      $: vi.fn().mockReturnValue(elements[0]),
+      $$: vi.fn().mockResolvedValue(elements),
+    };
+    return { getDriver: () => driver, driver } as never as {
+      getDriver: () => typeof driver;
+      driver: typeof driver;
+    };
+  }
+
+  const existing = () => ({ isExisting: vi.fn().mockResolvedValue(true) });
+
+  it('defaults to index 0 when storing a reference', () => {
+    const registry = new ElementRegistry();
+    const ref = registry.store({
+      selector: 'Cell',
+      strategy: 'class name',
+      sessionId: 's1',
+    });
+    expect(ref.index).toBe(0);
+  });
+
+  it('records the requested index', () => {
+    const registry = new ElementRegistry();
+    const ref = registry.store({
+      selector: 'Cell',
+      strategy: 'class name',
+      sessionId: 's1',
+      index: 2,
+    });
+    expect(ref.index).toBe(2);
+  });
+
+  it('uses the single-element lookup for index 0', async () => {
+    const registry = new ElementRegistry();
+    const manager = makeManager([existing()]);
+    await registry.findElement('class name', 'Cell', manager as never, 0);
+    expect(manager.driver.$).toHaveBeenCalled();
+    expect(manager.driver.$$).not.toHaveBeenCalled();
+  });
+
+  it('resolves the match list for a non-zero index', async () => {
+    const registry = new ElementRegistry();
+    const wanted = existing();
+    const manager = makeManager([existing(), existing(), wanted]);
+    const element = await registry.findElement('class name', 'Cell', manager as never, 2);
+    expect(manager.driver.$$).toHaveBeenCalled();
+    expect(element).toBe(wanted);
+  });
+
+  it('reports not-found when the index is past the last match', async () => {
+    const registry = new ElementRegistry();
+    const manager = makeManager([existing(), existing()]);
+    await expect(
+      registry.findElement('class name', 'Cell', manager as never, 5),
+    ).rejects.toThrow(ElementNotFoundError);
+  });
+
+  it('rehydrates a stored reference at its own index', async () => {
+    const registry = new ElementRegistry();
+    const wanted = existing();
+    const manager = makeManager([existing(), wanted]);
+    const ref = registry.store({
+      selector: 'Cell',
+      strategy: 'class name',
+      sessionId: 's1',
+      index: 1,
+    });
+    await expect(registry.retrieveElement(ref.id, manager as never)).resolves.toBe(
+      wanted,
+    );
+  });
+
+  it('treats a vanished indexed match as stale', async () => {
+    const registry = new ElementRegistry();
+    const manager = makeManager([existing()]);
+    const ref = registry.store({
+      selector: 'Cell',
+      strategy: 'class name',
+      sessionId: 's1',
+      index: 3,
+    });
+    await expect(registry.retrieveElement(ref.id, manager as never)).rejects.toThrow(
+      StaleElementError,
+    );
+  });
+
+  it('counts how many elements a selector matches', async () => {
+    const registry = new ElementRegistry();
+    const manager = makeManager([existing(), existing(), existing()]);
+    await expect(
+      registry.countMatches('class name', 'Cell', manager as never),
+    ).resolves.toBe(3);
+  });
+
+  it('counts zero rather than throwing when the lookup fails', async () => {
+    const registry = new ElementRegistry();
+    const manager = {
+      getDriver: () => ({
+        $$: vi.fn().mockRejectedValue(new Error('no session')),
+      }),
+    };
+    await expect(
+      registry.countMatches('class name', 'Cell', manager as never),
+    ).resolves.toBe(0);
   });
 });

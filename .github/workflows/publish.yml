@@ -17,6 +17,12 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org/
+          cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
       - run: npm run build
-      - run: npm publish --access public
+      # --provenance signs the package with the workflow's OIDC identity, which
+      # the id-token permission above already grants.
+      - run: npm publish --access public --provenance

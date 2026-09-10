@@ -2,9 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DaemonNotRunningError } from '../../src/shared/errors.js';
 import { DaemonClient } from '../../src/cli/daemon-client.js';
 
-vi.mock('../../src/daemon/pid-file.js', () => ({
-  readDaemonState: vi.fn(),
-  isDaemonProcessAlive: vi.fn(),
+vi.mock('../../src/shared/state-file.js', () => ({
+  findRunningDaemon: vi.fn(),
 }));
 
 const SESSION_META = {
@@ -39,25 +38,55 @@ describe('DaemonClient', () => {
   // ── fromDaemonState ───────────────────────────────────────────────────────
 
   describe('fromDaemonState', () => {
-    it('throws DaemonNotRunningError when state file is absent', async () => {
-      const { readDaemonState } = await import('../../src/daemon/pid-file.js');
-      vi.mocked(readDaemonState).mockResolvedValueOnce(null);
+    it('throws DaemonNotRunningError when no daemon answers', async () => {
+      const { findRunningDaemon } = await import('../../src/shared/state-file.js');
+      vi.mocked(findRunningDaemon).mockResolvedValueOnce(null);
       await expect(DaemonClient.fromDaemonState()).rejects.toThrow(DaemonNotRunningError);
     });
 
-    it('throws DaemonNotRunningError when process is dead', async () => {
-      const { readDaemonState, isDaemonProcessAlive } = await import('../../src/daemon/pid-file.js');
-      vi.mocked(readDaemonState).mockResolvedValueOnce({ pid: 1, port: 47321, startedAt: '' });
-      vi.mocked(isDaemonProcessAlive).mockReturnValueOnce(false);
-      await expect(DaemonClient.fromDaemonState()).rejects.toThrow(DaemonNotRunningError);
-    });
-
-    it('returns a DaemonClient when daemon is alive', async () => {
-      const { readDaemonState, isDaemonProcessAlive } = await import('../../src/daemon/pid-file.js');
-      vi.mocked(readDaemonState).mockResolvedValueOnce({ pid: 1234, port: 47321, startedAt: '' });
-      vi.mocked(isDaemonProcessAlive).mockReturnValueOnce(true);
+    it('returns a DaemonClient when the daemon answers', async () => {
+      const { findRunningDaemon } = await import('../../src/shared/state-file.js');
+      vi.mocked(findRunningDaemon).mockResolvedValueOnce({
+        pid: 1234,
+        port: 47321,
+        startedAt: '',
+      });
       const client = await DaemonClient.fromDaemonState();
       expect(client).toBeInstanceOf(DaemonClient);
+    });
+
+    it('carries the daemon token from the state file into requests', async () => {
+      const { findRunningDaemon } = await import('../../src/shared/state-file.js');
+      vi.mocked(findRunningDaemon).mockResolvedValueOnce({
+        pid: 1234,
+        port: 47321,
+        startedAt: '',
+        token: 'secret-token',
+      });
+      const client = await DaemonClient.fromDaemonState();
+
+      fetchMock.mockResolvedValueOnce(makeOkResponse({ active: false }));
+      await client.getSessionStatus();
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect((init.headers as Record<string, string>)['x-appium-agent-token']).toBe(
+        'secret-token',
+      );
+    });
+
+    it('talks to the port the state file records, not a hardcoded one', async () => {
+      const { findRunningDaemon } = await import('../../src/shared/state-file.js');
+      vi.mocked(findRunningDaemon).mockResolvedValueOnce({
+        pid: 1234,
+        port: 47399,
+        startedAt: '',
+      });
+      const client = await DaemonClient.fromDaemonState();
+
+      fetchMock.mockResolvedValueOnce(makeOkResponse({ active: false }));
+      await client.getSessionStatus();
+
+      expect(fetchMock.mock.calls[0]?.[0]).toContain(':47399');
     });
   });
 
@@ -83,7 +112,9 @@ describe('DaemonClient', () => {
     });
 
     it('throws with code and message from error response', async () => {
-      fetchMock.mockResolvedValueOnce(makeErrorResponse('SESSION_ALREADY_ACTIVE', 'Already active'));
+      fetchMock.mockResolvedValueOnce(
+        makeErrorResponse('SESSION_ALREADY_ACTIVE', 'Already active'),
+      );
       await expect(
         client.startSession({
           capabilities: {
@@ -92,7 +123,10 @@ describe('DaemonClient', () => {
             'appium:deviceName': 'iPhone 15',
           },
         }),
-      ).rejects.toMatchObject({ message: 'Already active', code: 'SESSION_ALREADY_ACTIVE' });
+      ).rejects.toMatchObject({
+        message: 'Already active',
+        code: 'SESSION_ALREADY_ACTIVE',
+      });
     });
   });
 
@@ -113,9 +147,17 @@ describe('DaemonClient', () => {
   describe('findElement', () => {
     it('sends POST /elements/find with strategy and selector', async () => {
       const client = DaemonClient.default();
-      const responseData = { elementId: 'e1', selector: '~btn', strategy: 'accessibility id', foundAt: '' };
+      const responseData = {
+        elementId: 'e1',
+        selector: '~btn',
+        strategy: 'accessibility id',
+        foundAt: '',
+      };
       fetchMock.mockResolvedValueOnce(makeOkResponse(responseData));
-      const result = await client.findElement({ strategy: 'accessibility id', selector: '~btn' });
+      const result = await client.findElement({
+        strategy: 'accessibility id',
+        selector: '~btn',
+      });
       expect(result.elementId).toBe('e1');
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/elements/find'),
@@ -220,6 +262,51 @@ describe('DaemonClient', () => {
       const client = DaemonClient.default();
       fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
       expect(await client.healthCheck()).toBe(false);
+    });
+  });
+  describe('request timeouts', () => {
+    it('attaches an abort signal to every request', async () => {
+      const client = DaemonClient.default();
+      fetchMock.mockResolvedValueOnce(makeOkResponse({ active: false }));
+      await client.getSessionStatus();
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('reports a DAEMON_TIMEOUT rather than hanging when the daemon stalls', async () => {
+      const client = DaemonClient.default();
+      fetchMock.mockRejectedValueOnce(
+        Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' }),
+      );
+
+      await expect(client.getSessionStatus()).rejects.toMatchObject({
+        code: 'DAEMON_TIMEOUT',
+      });
+    });
+
+    it('treats a connection failure as the daemon not running', async () => {
+      const client = DaemonClient.default();
+      fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+      await expect(client.getSessionStatus()).rejects.toThrow(DaemonNotRunningError);
+    });
+
+    it('gives session creation a longer budget than an ordinary call', async () => {
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+      const client = DaemonClient.default();
+
+      fetchMock.mockResolvedValueOnce(makeOkResponse({ active: false }));
+      await client.getSessionStatus();
+
+      fetchMock.mockResolvedValueOnce(makeOkResponse(SESSION_META));
+      await client.startSession({
+        capabilities: { platformName: 'iOS', 'appium:automationName': 'XCUITest' },
+      });
+
+      const shortMs = timeoutSpy.mock.calls[0]?.[0] as number;
+      const longMs = timeoutSpy.mock.calls[1]?.[0] as number;
+      expect(longMs).toBeGreaterThan(shortMs);
+      timeoutSpy.mockRestore();
     });
   });
 });

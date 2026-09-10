@@ -1,7 +1,11 @@
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
+import { makeOutput } from '../output.js';
+import { ValidationError } from '../../shared/errors.js';
 
 export function registerPerformAction(program: Command): void {
+  const out = makeOutput(program);
+
   program
     .command('perform-action')
     .description(
@@ -19,12 +23,11 @@ export function registerPerformAction(program: Command): void {
       try {
         parsed = JSON.parse(json);
       } catch {
-        console.error('Error: <json> argument is not valid JSON');
-        process.exit(1);
+        throw new ValidationError('The <json> argument is not valid JSON.');
       }
 
       const client = await DaemonClient.fromDaemonState();
       const result = await client.performAction(parsed);
-      console.log(result.message);
+      out.emit(result, () => console.log(result.message));
     });
 }

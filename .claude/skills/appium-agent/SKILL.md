@@ -16,6 +16,16 @@ All CLI commands run from the project root via:
 npx appium-agent <command> [options]
 ```
 
+Add `--json` to any command to get machine-readable output instead of prose — useful
+when you need to extract a value precisely:
+
+```bash
+npx appium-agent --json device-info
+```
+
+Every command exits non-zero on failure and prints a single `Error [CODE]: message`
+line, so you can branch on failure without parsing prose.
+
 ## Workflow
 
 ### 1. Ensure the daemon is running
@@ -62,6 +72,15 @@ npx appium-agent page-source
 
 `page-source` outputs a compact accessibility tree (YAML). Read it to identify element roles, names, and state attributes, then use those as selectors for `find-element`.
 
+Add `--bounds` when you intend to tap by coordinate — it annotates each element with its centre point and size, so you can go straight to `perform-action` without a `get-location` round trip:
+
+```bash
+npx appium-agent page-source --bounds
+# - button "Login" [at=196,742, size=120x44]
+```
+
+The tree only contains elements that are **actually on screen**. An element you can see in `--raw` but not in the tree is off-screen — scroll to it rather than clicking it blind.
+
 If `find-element` fails with `ELEMENT_NOT_FOUND`, fall back to the full raw XML to check for attributes not shown in the accessibility tree (e.g. `resource-id`, `xpath`-only identifiers):
 
 ```bash
@@ -78,6 +97,19 @@ npx appium-agent find-element --strategy "accessibility id" --selector "Login"
 ```
 
 Store the printed ID for use in follow-up actions.
+
+If the selector is ambiguous, `find-element` says so and stores the first match:
+
+```
+Note: selector matches 23 elements; stored index 0. Use --index or --all to reach the others.
+```
+
+Use `--index <n>` for a specific match, or `--all` to store a reference for every match:
+
+```bash
+npx appium-agent find-element --strategy "class name" --selector "XCUIElementTypeCell" --all
+npx appium-agent click --strategy "class name" --selector "XCUIElementTypeCell" --index 2
+```
 
 **Locator strategies:**
 | Strategy | Example selector |
@@ -124,11 +156,15 @@ npx appium-agent page-source --raw > /tmp/page.xml
 
 **Take a screenshot:**
 ```bash
-# Save PNG to a file (preferred for agents — avoids large base64 in stdout)
+# Saves a PNG and prints its path (the default — never floods stdout)
+npx appium-agent take-screenshot
+# → Screenshot saved to /tmp/appium-screenshot-1789068709845.png
+
+# Choose the path yourself
 npx appium-agent take-screenshot --output /tmp/screen.png
 
-# Print raw base64 to stdout (useful for piping)
-npx appium-agent take-screenshot
+# Only if you really need the bytes inline
+npx appium-agent take-screenshot --base64
 ```
 
 **Get an element attribute:**
@@ -142,6 +178,12 @@ npx appium-agent get-attribute --strategy "accessibility id" --selector "switch"
 ```
 
 Common attributes: `value`, `label`, `name`, `enabled`, `visible`, `accessible`, `focused`.
+
+**Get an element's text:**
+```bash
+npx appium-agent get-text --strategy "accessibility id" --selector "greeting"
+# → Welcome back, Alex
+```
 
 **Get element location and size:**
 ```bash
@@ -164,9 +206,78 @@ npx appium-agent video-start
 # Stop recording and save MP4
 npx appium-agent video-stop /recordings/recording.mp4
 
-# Stop recording and print base64 to stdout
+# Stop recording; saves to a temp file and prints the path
 npx appium-agent video-stop
+
+# Print base64 to stdout instead
+npx appium-agent video-stop --base64
 ```
+
+**Wait for an element (use this instead of sleeping):**
+
+After any action that triggers navigation, loading, or an animation, wait for the
+next screen rather than immediately calling `page-source`:
+
+```bash
+npx appium-agent wait --strategy "accessibility id" --selector "Dashboard" --for displayed
+# → "Dashboard" is displayed (after 412ms).
+```
+
+Conditions: `displayed` (default), `existing`, `enabled`, `gone`. Use `gone` to wait
+for a spinner or modal to disappear. `--timeout <ms>` defaults to 10000. A wait that
+never succeeds fails with `WAIT_TIMEOUT` rather than hanging.
+
+**Scroll:**
+
+Prefer `scroll` over hand-computed swipes — it reads the real screen size, so it works
+on any device:
+
+```bash
+# One screenful in a direction
+npx appium-agent scroll --direction down
+
+# Keep scrolling until an element is genuinely on screen (the common case)
+npx appium-agent scroll --direction down \
+  --to-strategy "accessibility id" --to-selector "Submit" --max-swipes 10
+# → Element in view after 3 swipe(s).
+```
+
+`--percent <0-0.95>` controls how far each swipe travels (default 0.6). Direction is
+the direction the *content* moves: `down` reveals content below, `left` reveals the
+previous page.
+
+If the element never appears you get `Element not found after N swipe(s)` — a signal
+to re-read `page-source` rather than to keep scrolling blindly.
+
+**Get device info:**
+
+Needed whenever you compute coordinates yourself:
+
+```bash
+npx appium-agent device-info
+# → Platform: iOS 18.0
+# → Device: iPhone 15
+# → Screen: 393x852
+# → Orientation: PORTRAIT
+# → Context: NATIVE_APP
+```
+
+**Switch context (hybrid apps and web views):**
+
+If `page-source` shows a `webview` element but almost no content inside it, the app is
+hybrid and you must switch context before the web content becomes reachable:
+
+```bash
+npx appium-agent context
+#   NATIVE_APP
+# * WEBVIEW_1        ← the * marks the current context
+
+npx appium-agent context --switch WEBVIEW_1
+# ... interact using css selector / xpath ...
+npx appium-agent context --switch NATIVE_APP
+```
+
+Remember to switch back to `NATIVE_APP` before interacting with native UI again.
 
 **Perform touch gestures:**
 
@@ -185,15 +296,9 @@ npx appium-agent perform-action '{"type":"long-press","x":200,"y":400,"duration"
 
 **Common interaction patterns:**
 
-*Scroll down (finger moves up):*
-```bash
-npx appium-agent perform-action '{"type":"swipe","startX":200,"startY":300,"endX":200,"endY":800,"duration":400}'
-```
-
-*Scroll up (finger moves down):*
-```bash
-npx appium-agent perform-action '{"type":"swipe","startX":200,"startY":700,"endX":200,"endY":200,"duration":400}'
-```
+> For plain scrolling use the `scroll` command above — it sizes the swipe to the
+> device. Reach for raw `perform-action` swipes only when you need exact
+> coordinates, drag & drop, or multi-touch.
 
 *Swipe left (next page / dismiss):*
 ```bash
@@ -277,10 +382,20 @@ npx appium-agent activate-app com.example.app
 **Terminate a running app:**
 ```bash
 npx appium-agent terminate-app com.example.app
-# → "App terminated: com.example.app"  (or "App was not running: ..." if already stopped)
+# → Terminated com.example.app.      (or "com.example.app was not running.")
 ```
 
-### 7. Close the session
+### 7. Check session state at any time
+
+```bash
+npx appium-agent session-status
+# → Active session: dc3e025e-689c-49e4-bd33-80bdd57c6a9c
+```
+
+Use this when you are unsure whether a session survived — it avoids a spurious
+`connect` that would fail with `SESSION_ALREADY_ACTIVE`.
+
+### 8. Close the session
 
 ```bash
 npx appium-agent delete-session
@@ -288,7 +403,7 @@ npx appium-agent delete-session
 
 This closes the Appium session and clears all stored element references.
 
-### 8. Kill the daemon (optional)
+### 9. Kill the daemon (optional)
 
 ```bash
 npx appium-agent daemon:kill
@@ -298,7 +413,9 @@ npx appium-agent daemon:kill
 
 `find-element` returns a short ID (e.g. `V1StGXR8_Z5jd`). Passing `--element-id` to `click` or `type` is preferred over repeating the locator — it skips redundant element discovery for subsequent steps in the same view.
 
-References use **selector rehydration**: the daemon re-finds the element at action time using the stored strategy + selector. If the view hierarchy has changed and the element is gone, you'll get a `STALE_ELEMENT` error with the original selector in the message. Re-run `find-element` to get a fresh reference.
+References use **selector rehydration**: the daemon re-finds the element at action time using the stored strategy + selector (and its index, if the selector was ambiguous). If the view hierarchy has changed and the element is gone, you'll get a `STALE_ELEMENT` error with the original selector in the message. Re-run `find-element` to get a fresh reference.
+
+References are cleared automatically when the session ends or the device stops responding, so a `STALE_ELEMENT` or `ELEMENT_REF_NOT_FOUND` after a crash means "re-discover", not "retry".
 
 ## Error handling
 
@@ -310,6 +427,11 @@ References use **selector rehydration**: the daemon re-finds the element at acti
 | `ELEMENT_NOT_FOUND` | Element not in current view | Check selector / scroll to reveal |
 | `STALE_ELEMENT` | Element was found before but is gone now | Re-run `find-element` |
 | `VALIDATION_ERROR` | Bad input (wrong caps format, empty selector) | Fix the argument |
+| `WAIT_TIMEOUT` | `wait` condition never met | Re-read `page-source`; the screen may not be what you expect |
+| `CONTEXT_NOT_FOUND` | Requested webview does not exist | Run `context` to list what is available |
+| `ELEMENT_REF_NOT_FOUND` | Unknown element ID | Re-run `find-element` |
+| `DAEMON_TIMEOUT` | Daemon did not respond in time | Check `~/.appium-agent/daemon.log`; restart with `daemon:kill` then `daemon:start` |
+| `UNAUTHORIZED` | Token mismatch (stale state file) | Run `daemon:kill` then `daemon:start` |
 
 ## Multi-step flow example
 
@@ -333,9 +455,26 @@ npx appium-agent type --element-id ref-def --text "secret" --clear
 
 npx appium-agent click --strategy "accessibility id" --selector "Login"
 
-# 4. Inspect the next screen
-npx appium-agent page-source
+# 4. Wait for the next screen instead of guessing at a delay
+npx appium-agent wait --strategy "accessibility id" --selector "Dashboard" --for displayed
 
-# 5. Done
+# 5. Inspect it, then scroll to something below the fold
+npx appium-agent page-source
+npx appium-agent scroll --direction down \
+  --to-strategy "accessibility id" --to-selector "Settings" --max-swipes 8
+npx appium-agent click --strategy "accessibility id" --selector "Settings"
+
+# 6. Done
 npx appium-agent delete-session
 ```
+
+## Working efficiently
+
+- Read `page-source` before acting; never guess a selector.
+- `wait` after anything that navigates — it is faster and far more reliable than
+  re-reading `page-source` in a loop.
+- `scroll --to-selector` rather than repeated blind swipes.
+- `--bounds` when you plan to tap coordinates; it saves a `get-location` call.
+- Reuse `--element-id` for repeated actions on the same element in one view.
+- The tree already omits off-screen elements, so if something is missing, scroll —
+  do not fall back to `--raw` unless you need an attribute the tree does not show.

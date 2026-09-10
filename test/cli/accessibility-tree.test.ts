@@ -116,10 +116,7 @@ describe('iOS simple tree', () => {
   it('renders the full indented tree (anonymous window collapsed)', () => {
     // XCUIElementTypeWindow has no name → single-child passthrough → button promoted
     expect(toAccessibilityYaml(IOS_SIMPLE)).toBe(
-      [
-        '- application "MyApp":',
-        '  - button "Back"',
-      ].join('\n'),
+      ['- application "MyApp":', '  - button "Back"'].join('\n'),
     );
   });
 });
@@ -342,5 +339,133 @@ describe('edge cases', () => {
   it('handles a single self-closing root element', () => {
     const xml = `<XCUIElementTypeButton name="OK" label="OK" enabled="true" visible="true" x="0" y="0" width="80" height="44"/>`;
     expect(toAccessibilityYaml(xml)).toBe('- button "OK"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Parser robustness — each case here silently dropped or mangled elements
+// before the parser became quote-aware and entity-decoding.
+// ---------------------------------------------------------------------------
+
+describe('attribute values containing markup characters', () => {
+  it('keeps an element whose text contains a bare ">"', () => {
+    const xml =
+      '<hierarchy><android.widget.TextView text="a > b"/>' +
+      '<android.widget.Button content-desc="OK"/></hierarchy>';
+    const out = toAccessibilityYaml(xml);
+    expect(out).toContain('"a > b"');
+    expect(out).toContain('"OK"');
+  });
+
+  it('keeps siblings after an element whose text contains ">"', () => {
+    const xml =
+      '<hierarchy><android.widget.TextView text="Next >"/>' +
+      '<android.widget.TextView text="After"/></hierarchy>';
+    expect(toAccessibilityYaml(xml)).toContain('"After"');
+  });
+
+  it('handles a "<" inside an attribute value', () => {
+    const xml = '<hierarchy><android.widget.TextView text="1 &lt; 2"/></hierarchy>';
+    expect(toAccessibilityYaml(xml)).toContain('"1 < 2"');
+  });
+
+  it('supports single-quoted attribute values', () => {
+    const xml = "<hierarchy><android.widget.Button content-desc='Save'/></hierarchy>";
+    expect(toAccessibilityYaml(xml)).toContain('"Save"');
+  });
+});
+
+describe('XML entity decoding', () => {
+  it('decodes named entities in names', () => {
+    const xml =
+      '<hierarchy><android.widget.TextView text="5 &gt; 3 &amp; rising"/></hierarchy>';
+    expect(toAccessibilityYaml(xml)).toContain('"5 > 3 & rising"');
+  });
+
+  it('decodes quotes and apostrophes', () => {
+    const xml =
+      '<hierarchy><android.widget.TextView text="&quot;hi&quot; &apos;there&apos;"/></hierarchy>';
+    expect(toAccessibilityYaml(xml)).toContain('"hi" \'there\'');
+  });
+
+  it('decodes decimal and hex numeric entities', () => {
+    const xml = '<hierarchy><android.widget.TextView text="&#65;&#x42;"/></hierarchy>';
+    expect(toAccessibilityYaml(xml)).toContain('"AB"');
+  });
+
+  it('leaves an unknown entity untouched rather than corrupting the text', () => {
+    const xml = '<hierarchy><android.widget.TextView text="&nope; ok"/></hierarchy>';
+    expect(toAccessibilityYaml(xml)).toContain('"&nope; ok"');
+  });
+});
+
+describe('hidden element filtering', () => {
+  it('drops iOS nodes marked visible="false"', () => {
+    const xml =
+      '<hierarchy><XCUIElementTypeButton name="Hidden" visible="false"/>' +
+      '<XCUIElementTypeButton name="Shown" visible="true"/></hierarchy>';
+    const out = toAccessibilityYaml(xml);
+    expect(out).not.toContain('Hidden');
+    expect(out).toContain('Shown');
+  });
+
+  it('drops Android nodes marked displayed="false"', () => {
+    const xml =
+      '<hierarchy><android.widget.TextView text="Hidden" displayed="false"/>' +
+      '<android.widget.TextView text="Shown" displayed="true"/></hierarchy>';
+    const out = toAccessibilityYaml(xml);
+    expect(out).not.toContain('Hidden');
+    expect(out).toContain('Shown');
+  });
+});
+
+describe('comments, CDATA and declarations', () => {
+  it('ignores comments, including ones containing tags', () => {
+    const xml =
+      '<hierarchy><!-- <android.widget.Button content-desc="Ghost"/> -->' +
+      '<android.widget.Button content-desc="Real"/></hierarchy>';
+    const out = toAccessibilityYaml(xml);
+    expect(out).not.toContain('Ghost');
+    expect(out).toContain('Real');
+  });
+
+  it('ignores the XML declaration', () => {
+    const xml =
+      '<?xml version="1.0" encoding="UTF-8"?><hierarchy><android.widget.Button content-desc="Go"/></hierarchy>';
+    expect(toAccessibilityYaml(xml)).toContain('"Go"');
+  });
+
+  it('returns an empty string for input with no elements', () => {
+    expect(toAccessibilityYaml('<?xml version="1.0"?>')).toBe('');
+  });
+});
+
+describe('bounds option', () => {
+  it('emits centre point and size from Android bounds', () => {
+    const xml =
+      '<hierarchy><android.widget.Button content-desc="Tap" bounds="[10,20][110,70]"/></hierarchy>';
+    const out = toAccessibilityYaml(xml, { bounds: true });
+    expect(out).toContain('at=60,45');
+    expect(out).toContain('size=100x50');
+  });
+
+  it('emits centre point and size from iOS x/y/width/height', () => {
+    const xml =
+      '<hierarchy><XCUIElementTypeButton name="Tap" x="0" y="100" width="200" height="40"/></hierarchy>';
+    const out = toAccessibilityYaml(xml, { bounds: true });
+    expect(out).toContain('at=100,120');
+    expect(out).toContain('size=200x40');
+  });
+
+  it('omits coordinates unless asked for', () => {
+    const xml =
+      '<hierarchy><android.widget.Button content-desc="Tap" bounds="[10,20][110,70]"/></hierarchy>';
+    expect(toAccessibilityYaml(xml)).not.toContain('at=');
+  });
+
+  it('skips zero-area elements', () => {
+    const xml =
+      '<hierarchy><android.widget.Button content-desc="Tap" bounds="[10,20][10,20]"/></hierarchy>';
+    expect(toAccessibilityYaml(xml, { bounds: true })).not.toContain('at=');
   });
 });

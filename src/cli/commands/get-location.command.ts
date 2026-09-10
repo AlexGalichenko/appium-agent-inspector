@@ -1,26 +1,28 @@
 import type { Command } from 'commander';
-import type { GetLocationRequest } from '../../shared/types.js';
 import { DaemonClient } from '../daemon-client.js';
+import { makeOutput } from '../output.js';
+import { addTargetOptions, resolveTarget } from '../target.js';
+import type { TargetOptions } from '../target.js';
 
 export function registerGetLocation(program: Command): void {
-  program
-    .command('get-location')
-    .description('Get the position and size of an element')
-    .option('--element-id <id>', 'Stored element reference ID')
-    .option('--strategy <strategy>', 'Locator strategy')
-    .option('--selector <value>', 'Element selector')
-    .action(async (opts: { elementId?: string; strategy?: string; selector?: string }) => {
-      const client = await DaemonClient.fromDaemonState();
+  const out = makeOutput(program);
 
-      const req: GetLocationRequest = opts.elementId
-        ? { elementId: opts.elementId }
-        : { strategy: opts.strategy as GetLocationRequest extends { strategy: infer S } ? S : never, selector: opts.selector as string };
-
-      const rect = await client.getElementLocation(req);
-
-      console.log(`x: ${rect.x}`);
-      console.log(`y: ${rect.y}`);
-      console.log(`width: ${rect.width}`);
-      console.log(`height: ${rect.height}`);
+  addTargetOptions(
+    program
+      .command('get-location')
+      .description('Get the position and size of an element on screen'),
+  ).action(async (opts: TargetOptions) => {
+    const target = resolveTarget(opts);
+    const client = await DaemonClient.fromDaemonState();
+    const rect = await client.getElementLocation(target);
+    const center = {
+      x: Math.round(rect.x + rect.width / 2),
+      y: Math.round(rect.y + rect.height / 2),
+    };
+    out.emit({ ...rect, center }, () => {
+      console.log(`x: ${rect.x}, y: ${rect.y}`);
+      console.log(`width: ${rect.width}, height: ${rect.height}`);
+      console.log(`center: ${center.x},${center.y}`);
     });
+  });
 }

@@ -4,17 +4,15 @@ import { makeOutput } from '../output.js';
 import { addTargetOptions, resolveTarget } from '../target.js';
 import type { TargetOptions } from '../target.js';
 
-export function registerClick(program: Command): void {
+export function registerGetText(program: Command): void {
   const out = makeOutput(program);
 
   addTargetOptions(
-    program
-      .command('click')
-      .description('Click an element (by stored reference ID or locator)'),
+    program.command('get-text').description('Get the visible text of an element'),
   ).action(async (opts: TargetOptions) => {
     const target = resolveTarget(opts);
     const client = await DaemonClient.fromDaemonState();
-    await client.click(target);
-    out.emit({ clicked: true, target }, () => console.log('Clicked.'));
+    const result = await client.getText(target);
+    out.emit(result, () => console.log(result.text));
   });
 }

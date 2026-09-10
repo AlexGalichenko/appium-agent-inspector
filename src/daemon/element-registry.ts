@@ -14,11 +14,13 @@ export class ElementRegistry {
     selector: string;
     strategy: LocatorStrategy;
     sessionId: string;
+    index?: number;
   }): ElementReference {
     const ref: ElementReference = {
       id: nanoid(),
       selector: opts.selector,
       strategy: opts.strategy,
+      index: opts.index ?? 0,
       foundAt: new Date().toISOString(),
       sessionId: opts.sessionId,
     };
@@ -38,11 +40,18 @@ export class ElementRegistry {
     strategy: LocatorStrategy,
     selector: string,
     sessionManager: SessionManager,
+    index = 0,
   ) {
     const driver = sessionManager.getDriver();
+    const wdioSelector = toWdioSelector(strategy, selector);
+
     try {
-      const element = driver.$(toWdioSelector(strategy, selector));
-      if (!(await element.isExisting())) {
+      // Index 0 keeps the cheaper single-element path; only an explicitly
+      // ambiguous request pays for resolving the whole match list.
+      const element =
+        index === 0 ? driver.$(wdioSelector) : (await driver.$$(wdioSelector))[index];
+
+      if (element === undefined || !(await element.isExisting())) {
         throw new ElementNotFoundError(strategy, selector);
       }
       return element;
@@ -52,12 +61,33 @@ export class ElementRegistry {
     }
   }
 
+  /** Number of elements the selector currently matches — 0 when none. */
+  async countMatches(
+    strategy: LocatorStrategy,
+    selector: string,
+    sessionManager: SessionManager,
+  ): Promise<number> {
+    const driver = sessionManager.getDriver();
+    try {
+      const elements = await driver.$$(toWdioSelector(strategy, selector));
+      return elements.length;
+    } catch {
+      return 0;
+    }
+  }
+
   async retrieveElement(id: string, sessionManager: SessionManager) {
     const ref = this.retrieve(id);
     const driver = sessionManager.getDriver();
+    const wdioSelector = toWdioSelector(ref.strategy, ref.selector);
+
     try {
-      const element = driver.$(toWdioSelector(ref.strategy, ref.selector));
-      if (!(await element.isExisting())) {
+      const element =
+        ref.index === 0
+          ? driver.$(wdioSelector)
+          : (await driver.$$(wdioSelector))[ref.index];
+
+      if (element === undefined || !(await element.isExisting())) {
         throw new StaleElementError(id, ref.selector);
       }
       return element;
@@ -80,7 +110,7 @@ export class ElementRegistry {
 /**
  * Converts a strategy + selector into the format webdriverio's $() accepts.
  */
-function toWdioSelector(strategy: LocatorStrategy, selector: string): string {
+export function toWdioSelector(strategy: LocatorStrategy, selector: string): string {
   switch (strategy) {
     case 'accessibility id':
       return `~${selector}`;

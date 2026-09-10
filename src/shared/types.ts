@@ -69,6 +69,34 @@ export interface StartSessionResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Context (native / webview) switching
+// ---------------------------------------------------------------------------
+
+export const SwitchContextRequestSchema = z.object({
+  name: z.string().min(1),
+});
+
+export type SwitchContextRequest = z.infer<typeof SwitchContextRequestSchema>;
+
+export interface ContextsResponse {
+  current: string | null;
+  contexts: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Device info
+// ---------------------------------------------------------------------------
+
+export interface DeviceInfoResponse {
+  platformName: string | null;
+  platformVersion: string | null;
+  deviceName: string | null;
+  window: { width: number; height: number };
+  orientation: string | null;
+  context: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Element reference
 // ---------------------------------------------------------------------------
 
@@ -76,6 +104,8 @@ export interface ElementReference {
   id: string;
   selector: string;
   strategy: LocatorStrategy;
+  /** Position among all matches for the selector. 0 for a unique match. */
+  index: number;
   foundAt: string;
   sessionId: string;
 }
@@ -87,16 +117,33 @@ export interface ElementReference {
 export const FindElementRequestSchema = z.object({
   strategy: LocatorStrategySchema,
   selector: z.string().min(1),
+  /** Which match to store when the selector is ambiguous. */
+  index: z.number().int().nonnegative().default(0),
+  /** Store a reference for every match instead of just one. */
+  all: z.boolean().default(false),
 });
 
 export type FindElementRequest = z.infer<typeof FindElementRequestSchema>;
+/** What a caller may send: `index` and `all` fall back to their defaults. */
+export type FindElementInput = z.input<typeof FindElementRequestSchema>;
 
 export interface FindElementResponse {
   elementId: string;
   selector: string;
   strategy: LocatorStrategy;
+  index: number;
   foundAt: string;
+  /** Total matches for the selector, so callers can detect ambiguity. */
+  matchCount: number;
 }
+
+export interface FindElementsResponse {
+  matchCount: number;
+  elements: FindElementResponse[];
+}
+
+export const WaitConditionSchema = z.enum(['existing', 'displayed', 'gone', 'enabled']);
+export type WaitCondition = z.infer<typeof WaitConditionSchema>;
 
 // ---------------------------------------------------------------------------
 // Action requests
@@ -104,8 +151,14 @@ export interface FindElementResponse {
 
 const ElementTargetSchema = z.union([
   z.object({ elementId: z.string().min(1) }),
-  z.object({ strategy: LocatorStrategySchema, selector: z.string().min(1) }),
+  z.object({
+    strategy: LocatorStrategySchema,
+    selector: z.string().min(1),
+    index: z.number().int().nonnegative().default(0),
+  }),
 ]);
+
+export type ElementTarget = z.infer<typeof ElementTargetSchema>;
 
 export const ClickRequestSchema = ElementTargetSchema;
 export type ClickRequest = z.infer<typeof ClickRequestSchema>;
@@ -127,6 +180,60 @@ export const TypeRequestSchema = ElementTargetSchema.and(
   }),
 );
 export type TypeRequest = z.infer<typeof TypeRequestSchema>;
+
+export const GetTextRequestSchema = ElementTargetSchema;
+export type GetTextRequest = z.infer<typeof GetTextRequestSchema>;
+
+export interface GetTextResponse {
+  text: string;
+}
+
+export const WaitRequestSchema = z.object({
+  strategy: LocatorStrategySchema,
+  selector: z.string().min(1),
+  condition: WaitConditionSchema.default('displayed'),
+  timeout: z.number().int().positive().max(600_000).default(10_000),
+});
+
+export type WaitRequest = z.infer<typeof WaitRequestSchema>;
+export type WaitInput = z.input<typeof WaitRequestSchema>;
+
+export interface WaitResponse {
+  condition: WaitCondition;
+  selector: string;
+  waitedMs: number;
+}
+
+// ---------------------------------------------------------------------------
+// Scrolling
+// ---------------------------------------------------------------------------
+
+export const ScrollDirectionSchema = z.enum(['up', 'down', 'left', 'right']);
+export type ScrollDirection = z.infer<typeof ScrollDirectionSchema>;
+
+export const ScrollRequestSchema = z.object({
+  direction: ScrollDirectionSchema.default('down'),
+  /** Fraction of the screen to travel per swipe. */
+  percent: z.number().positive().max(0.95).default(0.6),
+  /** Repeat the swipe until this element appears (bounded by maxSwipes). */
+  toElement: z
+    .object({
+      strategy: LocatorStrategySchema,
+      selector: z.string().min(1),
+    })
+    .optional(),
+  maxSwipes: z.number().int().positive().max(50).default(10),
+  duration: z.number().int().nonnegative().default(600),
+});
+
+export type ScrollRequest = z.infer<typeof ScrollRequestSchema>;
+export type ScrollInput = z.input<typeof ScrollRequestSchema>;
+
+export interface ScrollResponse {
+  direction: ScrollDirection;
+  swipes: number;
+  found: boolean | null;
+}
 
 // ---------------------------------------------------------------------------
 // App management requests
@@ -207,7 +314,10 @@ export const GestureActionSchema = z.discriminatedUnion('type', [
 // Raw W3C Actions API — array of action source objects
 export const RawActionsSchema = z.array(z.record(z.string(), z.unknown()));
 
-export const PerformActionRequestSchema = z.union([GestureActionSchema, RawActionsSchema]);
+export const PerformActionRequestSchema = z.union([
+  GestureActionSchema,
+  RawActionsSchema,
+]);
 
 export type PerformActionRequest = z.infer<typeof PerformActionRequestSchema>;
 
@@ -250,6 +360,9 @@ export interface DaemonState {
   pid: number;
   port: number;
   startedAt: string;
+  /** Shared secret the CLI sends back on every request. */
+  token?: string;
+  logFile?: string;
 }
 
 // ---------------------------------------------------------------------------
