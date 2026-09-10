@@ -7,13 +7,43 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Lowest supported version, current LTS, and the version used to publish.
+        node-version: [20, 22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # A stray file under dist/ silently ships to every consumer, so fail loudly
+      # rather than publishing a bloated tarball.
+      - name: Check published package size
+        run: |
+          SIZE=$(npm pack --dry-run --json | node -e \
+            "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].unpackedSize))")
+          echo "Unpacked package size: $SIZE bytes"
+          if [ "$SIZE" -gt 2000000 ]; then
+            echo "::error::Package is ${SIZE} bytes unpacked (limit 2000000). Check for stray files under dist/."
+            npm pack --dry-run 2>&1 | sort -k2 -h -r | head -20
+            exit 1
+          fi

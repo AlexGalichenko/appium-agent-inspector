@@ -84,7 +84,6 @@ describe('AppiumCapabilitiesSchema', () => {
     });
     expect(result.success).toBe(false);
   });
-
 });
 
 describe('AppiumServerConfigSchema', () => {
@@ -147,12 +146,18 @@ describe('FindElementRequestSchema', () => {
   });
 
   it('rejects empty selector', () => {
-    const result = FindElementRequestSchema.safeParse({ strategy: 'xpath', selector: '' });
+    const result = FindElementRequestSchema.safeParse({
+      strategy: 'xpath',
+      selector: '',
+    });
     expect(result.success).toBe(false);
   });
 
   it('rejects invalid strategy', () => {
-    const result = FindElementRequestSchema.safeParse({ strategy: 'bad', selector: '~btn' });
+    const result = FindElementRequestSchema.safeParse({
+      strategy: 'bad',
+      selector: '~btn',
+    });
     expect(result.success).toBe(false);
   });
 });
@@ -184,7 +189,9 @@ describe('ClickRequestSchema', () => {
 
 describe('ActivateAppRequestSchema', () => {
   it('accepts a valid appId', () => {
-    expect(ActivateAppRequestSchema.safeParse({ appId: 'com.example.app' }).success).toBe(true);
+    expect(ActivateAppRequestSchema.safeParse({ appId: 'com.example.app' }).success).toBe(
+      true,
+    );
   });
 
   it('rejects missing appId', () => {
@@ -198,7 +205,9 @@ describe('ActivateAppRequestSchema', () => {
 
 describe('TerminateAppRequestSchema', () => {
   it('accepts a valid appId', () => {
-    expect(TerminateAppRequestSchema.safeParse({ appId: 'com.example.app' }).success).toBe(true);
+    expect(
+      TerminateAppRequestSchema.safeParse({ appId: 'com.example.app' }).success,
+    ).toBe(true);
   });
 
   it('rejects missing appId', () => {
@@ -213,7 +222,11 @@ describe('TerminateAppRequestSchema', () => {
 describe('PerformActionRequestSchema', () => {
   describe('tap', () => {
     it('accepts valid tap and applies default duration of 0', () => {
-      const result = PerformActionRequestSchema.safeParse({ type: 'tap', x: 100, y: 200 });
+      const result = PerformActionRequestSchema.safeParse({
+        type: 'tap',
+        x: 100,
+        y: 200,
+      });
       expect(result.success).toBe(true);
       if (result.success) {
         expect((result.data as { duration: number }).duration).toBe(0);
@@ -222,21 +235,35 @@ describe('PerformActionRequestSchema', () => {
 
     it('accepts explicit duration', () => {
       expect(
-        PerformActionRequestSchema.safeParse({ type: 'tap', x: 100, y: 200, duration: 500 }).success,
+        PerformActionRequestSchema.safeParse({
+          type: 'tap',
+          x: 100,
+          y: 200,
+          duration: 500,
+        }).success,
       ).toBe(true);
     });
 
     it('rejects missing x', () => {
-      expect(PerformActionRequestSchema.safeParse({ type: 'tap', y: 200 }).success).toBe(false);
+      expect(PerformActionRequestSchema.safeParse({ type: 'tap', y: 200 }).success).toBe(
+        false,
+      );
     });
 
     it('rejects missing y', () => {
-      expect(PerformActionRequestSchema.safeParse({ type: 'tap', x: 100 }).success).toBe(false);
+      expect(PerformActionRequestSchema.safeParse({ type: 'tap', x: 100 }).success).toBe(
+        false,
+      );
     });
 
     it('rejects negative duration', () => {
       expect(
-        PerformActionRequestSchema.safeParse({ type: 'tap', x: 100, y: 200, duration: -1 }).success,
+        PerformActionRequestSchema.safeParse({
+          type: 'tap',
+          x: 100,
+          y: 200,
+          duration: -1,
+        }).success,
       ).toBe(false);
     });
   });
@@ -253,25 +280,33 @@ describe('PerformActionRequestSchema', () => {
     });
 
     it('accepts explicit duration', () => {
-      expect(PerformActionRequestSchema.safeParse({ ...validSwipe, duration: 300 }).success).toBe(true);
+      expect(
+        PerformActionRequestSchema.safeParse({ ...validSwipe, duration: 300 }).success,
+      ).toBe(true);
     });
 
     it('rejects missing start coordinates', () => {
       expect(
-        PerformActionRequestSchema.safeParse({ type: 'swipe', endX: 100, endY: 200 }).success,
+        PerformActionRequestSchema.safeParse({ type: 'swipe', endX: 100, endY: 200 })
+          .success,
       ).toBe(false);
     });
 
     it('rejects missing end coordinates', () => {
       expect(
-        PerformActionRequestSchema.safeParse({ type: 'swipe', startX: 100, startY: 500 }).success,
+        PerformActionRequestSchema.safeParse({ type: 'swipe', startX: 100, startY: 500 })
+          .success,
       ).toBe(false);
     });
   });
 
   describe('long-press', () => {
     it('accepts valid long-press and applies default duration of 1500', () => {
-      const result = PerformActionRequestSchema.safeParse({ type: 'long-press', x: 200, y: 400 });
+      const result = PerformActionRequestSchema.safeParse({
+        type: 'long-press',
+        x: 200,
+        y: 400,
+      });
       expect(result.success).toBe(true);
       if (result.success) {
         expect((result.data as { duration: number }).duration).toBe(1500);
@@ -280,19 +315,31 @@ describe('PerformActionRequestSchema', () => {
 
     it('accepts explicit duration', () => {
       expect(
-        PerformActionRequestSchema.safeParse({ type: 'long-press', x: 200, y: 400, duration: 2000 }).success,
+        PerformActionRequestSchema.safeParse({
+          type: 'long-press',
+          x: 200,
+          y: 400,
+          duration: 2000,
+        }).success,
       ).toBe(true);
     });
 
     it('rejects missing coordinates', () => {
-      expect(PerformActionRequestSchema.safeParse({ type: 'long-press' }).success).toBe(false);
+      expect(PerformActionRequestSchema.safeParse({ type: 'long-press' }).success).toBe(
+        false,
+      );
     });
   });
 
   describe('raw W3C actions array', () => {
     it('accepts a non-empty actions array', () => {
       const result = PerformActionRequestSchema.safeParse([
-        { type: 'pointer', id: 'finger1', parameters: { pointerType: 'touch' }, actions: [] },
+        {
+          type: 'pointer',
+          id: 'finger1',
+          parameters: { pointerType: 'touch' },
+          actions: [],
+        },
       ]);
       expect(result.success).toBe(true);
     });
@@ -303,7 +350,8 @@ describe('PerformActionRequestSchema', () => {
 
     it('rejects an unknown gesture type object', () => {
       expect(
-        PerformActionRequestSchema.safeParse({ type: 'double-tap', x: 100, y: 200 }).success,
+        PerformActionRequestSchema.safeParse({ type: 'double-tap', x: 100, y: 200 })
+          .success,
       ).toBe(false);
     });
 
@@ -319,7 +367,10 @@ describe('PerformActionRequestSchema', () => {
 
 describe('GetAttributeRequestSchema', () => {
   it('accepts elementId + attribute', () => {
-    const result = GetAttributeRequestSchema.safeParse({ elementId: 'ref-1', attribute: 'value' });
+    const result = GetAttributeRequestSchema.safeParse({
+      elementId: 'ref-1',
+      attribute: 'value',
+    });
     expect(result.success).toBe(true);
   });
 
@@ -338,7 +389,10 @@ describe('GetAttributeRequestSchema', () => {
   });
 
   it('rejects empty attribute', () => {
-    const result = GetAttributeRequestSchema.safeParse({ elementId: 'ref-1', attribute: '' });
+    const result = GetAttributeRequestSchema.safeParse({
+      elementId: 'ref-1',
+      attribute: '',
+    });
     expect(result.success).toBe(false);
   });
 

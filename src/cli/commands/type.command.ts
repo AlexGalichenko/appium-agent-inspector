@@ -1,36 +1,24 @@
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
-import { LocatorStrategySchema } from '../../shared/types.js';
+import { makeOutput } from '../output.js';
+import { addTargetOptions, resolveTarget } from '../target.js';
+import type { TargetOptions } from '../target.js';
 
 export function registerType(program: Command): void {
-  program
-    .command('type')
-    .description('Type text into an element (by stored reference ID or locator)')
-    .requiredOption('--text <text>', 'Text to type')
-    .option('--element-id <id>', 'Stored element reference ID from find-element')
-    .option('--strategy <strategy>', 'Locator strategy (when not using --element-id)')
-    .option('--selector <selector>', 'Element selector (when not using --element-id)')
-    .option('--clear', 'Clear the field before typing', false)
-    .action(async (opts: {
-      text: string;
-      elementId?: string;
-      strategy?: string;
-      selector?: string;
-      clear: boolean;
-    }) => {
-      const client = await DaemonClient.fromDaemonState();
-      const clearFirst = opts.clear;
+  const out = makeOutput(program);
 
-      if (opts.elementId !== undefined) {
-        await client.type({ elementId: opts.elementId, text: opts.text, clearFirst });
-      } else if (opts.strategy !== undefined && opts.selector !== undefined) {
-        const strategy = LocatorStrategySchema.parse(opts.strategy);
-        await client.type({ strategy, selector: opts.selector, text: opts.text, clearFirst });
-      } else {
-        console.error('Provide either --element-id or both --strategy and --selector');
-        process.exit(1);
-      }
-
-      console.log('Text entered.');
-    });
+  addTargetOptions(
+    program
+      .command('type')
+      .description('Type text into an element (by stored reference ID or locator)')
+      .requiredOption('--text <text>', 'Text to type')
+      .option('--clear', 'Clear the field before typing', false),
+  ).action(async (opts: TargetOptions & { text: string; clear: boolean }) => {
+    const target = resolveTarget(opts);
+    const client = await DaemonClient.fromDaemonState();
+    await client.type({ ...target, text: opts.text, clearFirst: opts.clear });
+    out.emit({ typed: true, text: opts.text, target }, () =>
+      console.log('Text entered.'),
+    );
+  });
 }

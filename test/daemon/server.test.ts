@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import {
+  ContextNotFoundError,
   ElementNotFoundError,
   ElementRefNotFoundError,
   SessionAlreadyActiveError,
@@ -25,6 +26,7 @@ const ELEMENT_REF = {
   id: 'ref-1',
   selector: '~Login',
   strategy: 'accessibility id' as const,
+  index: 0,
   foundAt: '2026-01-01T00:00:00.000Z',
   sessionId: 'sess-1',
 };
@@ -36,6 +38,7 @@ const MOCK_ELEMENT = {
   getAttribute: vi.fn().mockResolvedValue('1'),
   getLocation: vi.fn().mockResolvedValue({ x: 10, y: 20 }),
   getSize: vi.fn().mockResolvedValue({ width: 100, height: 50 }),
+  getText: vi.fn().mockResolvedValue('Sign in'),
 };
 
 const MOCK_ACTION_CHAIN = {
@@ -46,7 +49,9 @@ const MOCK_ACTION_CHAIN = {
   perform: vi.fn().mockResolvedValue(undefined),
 };
 
-function makeSessionManager(overrides: Partial<Record<keyof SessionManager, unknown>> = {}) {
+function makeSessionManager(
+  overrides: Partial<Record<keyof SessionManager, unknown>> = {},
+) {
   return {
     startSession: vi.fn().mockResolvedValue(SESSION_META),
     endSession: vi.fn().mockResolvedValue(undefined),
@@ -60,6 +65,32 @@ function makeSessionManager(overrides: Partial<Record<keyof SessionManager, unkn
       stopRecordingScreen: vi.fn().mockResolvedValue('base64mp4=='),
       performActions: vi.fn().mockResolvedValue(undefined),
       action: vi.fn().mockReturnValue(MOCK_ACTION_CHAIN),
+      installApp: vi.fn().mockResolvedValue(undefined),
+      getWindowSize: vi.fn().mockResolvedValue({ width: 400, height: 800 }),
+      $: vi.fn().mockReturnValue({
+        isExisting: vi.fn().mockResolvedValue(true),
+        isDisplayed: vi.fn().mockResolvedValue(true),
+        getAttribute: vi.fn().mockResolvedValue('true'),
+        waitForExist: vi.fn().mockResolvedValue(true),
+        waitForDisplayed: vi.fn().mockResolvedValue(true),
+        waitForEnabled: vi.fn().mockResolvedValue(true),
+      }),
+    }),
+    getContexts: vi.fn().mockResolvedValue({
+      current: 'NATIVE_APP',
+      contexts: ['NATIVE_APP', 'WEBVIEW_1'],
+    }),
+    switchContext: vi.fn().mockResolvedValue({
+      current: 'WEBVIEW_1',
+      contexts: ['NATIVE_APP', 'WEBVIEW_1'],
+    }),
+    getDeviceInfo: vi.fn().mockResolvedValue({
+      platformName: 'iOS',
+      platformVersion: '18.0',
+      deviceName: 'iPhone 15',
+      window: { width: 400, height: 800 },
+      orientation: 'PORTRAIT',
+      context: 'NATIVE_APP',
     }),
     getSessionMeta: vi.fn().mockReturnValue(SESSION_META),
     isActive: vi.fn().mockReturnValue(false),
@@ -73,6 +104,7 @@ function makeElementRegistry(overrides: Partial<Record<string, unknown>> = {}) {
     store: vi.fn().mockReturnValue(ELEMENT_REF),
     retrieve: vi.fn().mockReturnValue(ELEMENT_REF),
     findElement: vi.fn().mockResolvedValue(MOCK_ELEMENT),
+    countMatches: vi.fn().mockResolvedValue(1),
     retrieveElement: vi.fn().mockResolvedValue(MOCK_ELEMENT),
     invalidateAll: vi.fn(),
     list: vi.fn().mockReturnValue([ELEMENT_REF]),
@@ -115,7 +147,10 @@ describe('buildServer', () => {
     it('returns 200 ok', async () => {
       const res = await server.inject({ method: 'GET', url: '/health' });
       expect(res.statusCode).toBe(200);
-      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { status: 'ok' } });
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(true);
+      expect(body.data.status).toBe('ok');
+      expect(body.data.service).toBe('appium-agent');
     });
   });
 
@@ -123,7 +158,9 @@ describe('buildServer', () => {
 
   describe('POST /daemon/shutdown', () => {
     it('returns 200 and calls process.exit', async () => {
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+      const exitSpy = vi
+        .spyOn(process, 'exit')
+        .mockImplementation((() => undefined) as never);
       const res = await server.inject({ method: 'POST', url: '/daemon/shutdown' });
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body).ok).toBe(true);
@@ -131,7 +168,9 @@ describe('buildServer', () => {
     });
 
     it('calls endSession if session is active before exiting', async () => {
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+      const exitSpy = vi
+        .spyOn(process, 'exit')
+        .mockImplementation((() => undefined) as never);
       sessionManager = makeSessionManager({ isActive: vi.fn().mockReturnValue(true) });
       server = await buildServer({ sessionManager, elementRegistry, logger: mockLogger });
       await server.ready();
@@ -174,7 +213,11 @@ describe('buildServer', () => {
       vi.mocked(sessionManager.startSession).mockRejectedValueOnce(
         new SessionAlreadyActiveError(),
       );
-      const res = await server.inject({ method: 'POST', url: '/session', payload: validBody });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/session',
+        payload: validBody,
+      });
       expect(res.statusCode).toBe(409);
       expect(JSON.parse(res.body).error.code).toBe('SESSION_ALREADY_ACTIVE');
     });
@@ -188,7 +231,9 @@ describe('buildServer', () => {
     });
 
     it('returns 409 when no session is active', async () => {
-      vi.mocked(sessionManager.endSession).mockRejectedValueOnce(new SessionNotActiveError());
+      vi.mocked(sessionManager.endSession).mockRejectedValueOnce(
+        new SessionNotActiveError(),
+      );
       const res = await server.inject({ method: 'DELETE', url: '/session' });
       expect(res.statusCode).toBe(409);
     });
@@ -227,7 +272,11 @@ describe('buildServer', () => {
     });
 
     it('returns 400 for invalid body', async () => {
-      const res = await server.inject({ method: 'POST', url: '/elements/find', payload: {} });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/elements/find',
+        payload: {},
+      });
       expect(res.statusCode).toBe(400);
     });
 
@@ -235,14 +284,24 @@ describe('buildServer', () => {
       vi.mocked(elementRegistry.findElement).mockRejectedValueOnce(
         new ElementNotFoundError('accessibility id', '~Missing'),
       );
-      const res = await server.inject({ method: 'POST', url: '/elements/find', payload: validBody });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/elements/find',
+        payload: validBody,
+      });
       expect(res.statusCode).toBe(404);
     });
 
     it('returns 409 when no session is active', async () => {
       vi.mocked(sessionManager.getSessionId).mockReturnValueOnce(null);
-      vi.mocked(elementRegistry.findElement).mockRejectedValueOnce(new SessionNotActiveError());
-      const res = await server.inject({ method: 'POST', url: '/elements/find', payload: validBody });
+      vi.mocked(elementRegistry.findElement).mockRejectedValueOnce(
+        new SessionNotActiveError(),
+      );
+      const res = await server.inject({
+        method: 'POST',
+        url: '/elements/find',
+        payload: validBody,
+      });
       expect(res.statusCode).toBe(409);
     });
   });
@@ -281,7 +340,10 @@ describe('buildServer', () => {
         payload: { elementId: 'ref-1' },
       });
       expect(res.statusCode).toBe(200);
-      expect(elementRegistry.retrieveElement).toHaveBeenCalledWith('ref-1', sessionManager);
+      expect(elementRegistry.retrieveElement).toHaveBeenCalledWith(
+        'ref-1',
+        sessionManager,
+      );
     });
 
     it('clicks by strategy and selector', async () => {
@@ -307,7 +369,11 @@ describe('buildServer', () => {
     });
 
     it('returns 400 for invalid body', async () => {
-      const res = await server.inject({ method: 'POST', url: '/actions/click', payload: {} });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/click',
+        payload: {},
+      });
       expect(res.statusCode).toBe(400);
     });
   });
@@ -390,7 +456,10 @@ describe('buildServer', () => {
         payload: { appId: 'com.example.app' },
       });
       expect(res.statusCode).toBe(200);
-      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'App activated' } });
+      expect(JSON.parse(res.body)).toEqual({
+        ok: true,
+        data: { message: 'App activated' },
+      });
       const driver = sessionManager.getDriver();
       expect(driver.activateApp).toHaveBeenCalledWith('com.example.app');
     });
@@ -444,7 +513,9 @@ describe('buildServer', () => {
 
     it('returns terminated: false when app was not running', async () => {
       const driver = sessionManager.getDriver();
-      vi.mocked(driver.terminateApp).mockResolvedValueOnce(false);
+      vi.mocked(
+        driver.terminateApp as unknown as () => Promise<boolean>,
+      ).mockResolvedValueOnce(false);
       const res = await server.inject({
         method: 'POST',
         url: '/actions/terminate-app',
@@ -499,7 +570,11 @@ describe('buildServer', () => {
       const res = await server.inject({
         method: 'POST',
         url: '/actions/attribute',
-        payload: { strategy: 'accessibility id', selector: '~Login', attribute: 'enabled' },
+        payload: {
+          strategy: 'accessibility id',
+          selector: '~Login',
+          attribute: 'enabled',
+        },
       });
       expect(res.statusCode).toBe(200);
       expect(elementRegistry.findElement).toHaveBeenCalled();
@@ -544,7 +619,11 @@ describe('buildServer', () => {
       const res = await server.inject({
         method: 'POST',
         url: '/actions/attribute',
-        payload: { strategy: 'accessibility id', selector: '~Missing', attribute: 'value' },
+        payload: {
+          strategy: 'accessibility id',
+          selector: '~Missing',
+          attribute: 'value',
+        },
       });
       expect(res.statusCode).toBe(404);
     });
@@ -562,7 +641,9 @@ describe('buildServer', () => {
     });
 
     it('returns 409 when no session is active', async () => {
-      vi.mocked(elementRegistry.retrieveElement).mockRejectedValueOnce(new SessionNotActiveError());
+      vi.mocked(elementRegistry.retrieveElement).mockRejectedValueOnce(
+        new SessionNotActiveError(),
+      );
       const res = await server.inject({
         method: 'POST',
         url: '/actions/attribute',
@@ -583,9 +664,14 @@ describe('buildServer', () => {
         payload: { type: 'tap', x: 200, y: 400 },
       });
       expect(res.statusCode).toBe(200);
-      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'tap performed' } });
+      expect(JSON.parse(res.body)).toEqual({
+        ok: true,
+        data: { message: 'tap performed' },
+      });
       const driver = sessionManager.getDriver();
-      expect(driver.action).toHaveBeenCalledWith('pointer', { parameters: { pointerType: 'touch' } });
+      expect(driver.action).toHaveBeenCalledWith('pointer', {
+        parameters: { pointerType: 'touch' },
+      });
       expect(MOCK_ACTION_CHAIN.perform).toHaveBeenCalled();
     });
 
@@ -593,10 +679,20 @@ describe('buildServer', () => {
       const res = await server.inject({
         method: 'POST',
         url: '/actions/perform',
-        payload: { type: 'swipe', startX: 100, startY: 700, endX: 100, endY: 200, duration: 400 },
+        payload: {
+          type: 'swipe',
+          startX: 100,
+          startY: 700,
+          endX: 100,
+          endY: 200,
+          duration: 400,
+        },
       });
       expect(res.statusCode).toBe(200);
-      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'swipe performed' } });
+      expect(JSON.parse(res.body)).toEqual({
+        ok: true,
+        data: { message: 'swipe performed' },
+      });
       expect(MOCK_ACTION_CHAIN.perform).toHaveBeenCalled();
     });
 
@@ -607,7 +703,10 @@ describe('buildServer', () => {
         payload: { type: 'long-press', x: 200, y: 400, duration: 1500 },
       });
       expect(res.statusCode).toBe(200);
-      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'long-press performed' } });
+      expect(JSON.parse(res.body)).toEqual({
+        ok: true,
+        data: { message: 'long-press performed' },
+      });
       expect(MOCK_ACTION_CHAIN.perform).toHaveBeenCalled();
     });
 
@@ -631,7 +730,10 @@ describe('buildServer', () => {
         payload: actions,
       });
       expect(res.statusCode).toBe(200);
-      expect(JSON.parse(res.body)).toEqual({ ok: true, data: { message: 'actions performed' } });
+      expect(JSON.parse(res.body)).toEqual({
+        ok: true,
+        data: { message: 'actions performed' },
+      });
       const driver = sessionManager.getDriver();
       expect(driver.performActions).toHaveBeenCalledWith(actions);
     });
@@ -724,6 +826,387 @@ describe('buildServer', () => {
       const body = JSON.parse(res.body);
       expect(body.error.code).toBe('INTERNAL_ERROR');
       expect(body.error.message).toBe('unexpected boom');
+    });
+  });
+  // ── Previously uncovered action routes ────────────────────────────────────
+
+  describe('POST /actions/execute', () => {
+    it('forwards the command and params to the driver', async () => {
+      const driver = vi.mocked(sessionManager.getDriver)();
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/execute',
+        payload: { command: 'mobile: scroll', params: { direction: 'down' } },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(driver.execute).toHaveBeenCalledWith('mobile: scroll', {
+        direction: 'down',
+      });
+    });
+
+    it('defaults params to an empty object', async () => {
+      const driver = vi.mocked(sessionManager.getDriver)();
+      await server.inject({
+        method: 'POST',
+        url: '/actions/execute',
+        payload: { command: 'mobile: getDeviceInfo' },
+      });
+      expect(driver.execute).toHaveBeenCalledWith('mobile: getDeviceInfo', {});
+    });
+
+    it('returns 400 when command is missing', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/execute',
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 409 when there is no session', async () => {
+      vi.mocked(sessionManager.getDriver).mockImplementationOnce(() => {
+        throw new SessionNotActiveError();
+      });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/execute',
+        payload: { command: 'mobile: scroll' },
+      });
+      expect(res.statusCode).toBe(409);
+    });
+  });
+
+  describe('POST /actions/location', () => {
+    it('returns the element rect', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/location',
+        payload: { elementId: 'ref-1' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data).toEqual({ x: 10, y: 20, width: 100, height: 50 });
+    });
+
+    it('returns 410 for a stale reference', async () => {
+      vi.mocked(elementRegistry.retrieveElement).mockRejectedValueOnce(
+        new StaleElementError('ref-1', '~Login'),
+      );
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/location',
+        payload: { elementId: 'ref-1' },
+      });
+      expect(res.statusCode).toBe(410);
+    });
+  });
+
+  describe('POST /actions/install-app', () => {
+    it('installs the given package', async () => {
+      const driver = vi.mocked(sessionManager.getDriver)();
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/install-app',
+        payload: { appPath: '/tmp/app.apk' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(driver.installApp).toHaveBeenCalledWith('/tmp/app.apk');
+    });
+
+    it('returns 400 when appPath is empty', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/install-app',
+        payload: { appPath: '' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('reports validation details in the same shape as other routes', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/install-app',
+        payload: {},
+      });
+      const body = JSON.parse(res.body);
+      expect(body.error.code).toBe('VALIDATION_ERROR');
+      expect(typeof body.error.details).toBe('string');
+    });
+  });
+
+  describe('video recording', () => {
+    it('POST /actions/video-start starts the recording', async () => {
+      const driver = vi.mocked(sessionManager.getDriver)();
+      const res = await server.inject({ method: 'POST', url: '/actions/video-start' });
+      expect(res.statusCode).toBe(200);
+      expect(driver.startRecordingScreen).toHaveBeenCalled();
+      expect(JSON.parse(res.body).data.startedAt).toBeTruthy();
+    });
+
+    it('POST /actions/video-stop returns the encoded recording', async () => {
+      const res = await server.inject({ method: 'POST', url: '/actions/video-stop' });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data.data).toBe('base64mp4==');
+    });
+
+    it('returns 409 when no session is active', async () => {
+      vi.mocked(sessionManager.getDriver).mockImplementationOnce(() => {
+        throw new SessionNotActiveError();
+      });
+      const res = await server.inject({ method: 'POST', url: '/actions/video-stop' });
+      expect(res.statusCode).toBe(409);
+    });
+  });
+
+  describe('POST /actions/text', () => {
+    it('returns the element text', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/text',
+        payload: { elementId: 'ref-1' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data.text).toBe('Sign in');
+    });
+  });
+
+  // ── Scrolling ─────────────────────────────────────────────────────────────
+
+  describe('POST /actions/scroll', () => {
+    it('performs a single swipe when no target element is given', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/scroll',
+        payload: { direction: 'down' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data).toEqual({
+        direction: 'down',
+        swipes: 1,
+        found: null,
+      });
+    });
+
+    it('stops immediately when the target element is already visible', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/scroll',
+        payload: {
+          direction: 'down',
+          toElement: { strategy: 'accessibility id', selector: 'Submit' },
+        },
+      });
+      const body = JSON.parse(res.body);
+      expect(body.data.found).toBe(true);
+      expect(body.data.swipes).toBe(0);
+    });
+
+    it('gives up after maxSwipes when the element never appears', async () => {
+      vi.mocked(sessionManager.getDriver).mockReturnValue({
+        ...vi.mocked(sessionManager.getDriver)(),
+        $: vi.fn().mockReturnValue({
+          isExisting: vi.fn().mockResolvedValue(false),
+          isDisplayed: vi.fn().mockResolvedValue(false),
+          getAttribute: vi.fn().mockResolvedValue('false'),
+        }),
+      } as never);
+
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/scroll',
+        payload: {
+          direction: 'down',
+          maxSwipes: 3,
+          toElement: { strategy: 'accessibility id', selector: 'Missing' },
+        },
+      });
+      const body = JSON.parse(res.body);
+      expect(body.data.found).toBe(false);
+      expect(body.data.swipes).toBe(3);
+    });
+
+    it('rejects a percent above the allowed range', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/scroll',
+        payload: { direction: 'down', percent: 2 },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  // ── Waiting ───────────────────────────────────────────────────────────────
+
+  describe('POST /elements/wait', () => {
+    it('waits for the requested condition', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/elements/wait',
+        payload: {
+          strategy: 'accessibility id',
+          selector: 'Login',
+          condition: 'displayed',
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data.condition).toBe('displayed');
+    });
+
+    it('returns 408 when the condition is never met', async () => {
+      vi.mocked(sessionManager.getDriver).mockReturnValue({
+        ...vi.mocked(sessionManager.getDriver)(),
+        $: vi.fn().mockReturnValue({
+          waitForDisplayed: vi.fn().mockRejectedValue(new Error('timeout')),
+        }),
+      } as never);
+
+      const res = await server.inject({
+        method: 'POST',
+        url: '/elements/wait',
+        payload: { strategy: 'accessibility id', selector: 'Login', timeout: 50 },
+      });
+      expect(res.statusCode).toBe(408);
+      expect(JSON.parse(res.body).error.code).toBe('WAIT_TIMEOUT');
+    });
+
+    it('rejects an unknown condition', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/elements/wait',
+        payload: {
+          strategy: 'accessibility id',
+          selector: 'Login',
+          condition: 'sideways',
+        },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  // ── Contexts and device info ──────────────────────────────────────────────
+
+  describe('context routes', () => {
+    it('GET /session/contexts lists the available contexts', async () => {
+      const res = await server.inject({ method: 'GET', url: '/session/contexts' });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data.contexts).toEqual(['NATIVE_APP', 'WEBVIEW_1']);
+    });
+
+    it('POST /session/context switches context', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/session/context',
+        payload: { name: 'WEBVIEW_1' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data.current).toBe('WEBVIEW_1');
+    });
+
+    it('POST /session/context returns 404 for an unavailable context', async () => {
+      vi.mocked(sessionManager.switchContext).mockRejectedValueOnce(
+        new ContextNotFoundError('WEBVIEW_9', ['NATIVE_APP']),
+      );
+      const res = await server.inject({
+        method: 'POST',
+        url: '/session/context',
+        payload: { name: 'WEBVIEW_9' },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('GET /session/device reports screen size', async () => {
+      const res = await server.inject({ method: 'GET', url: '/session/device' });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).data.window).toEqual({ width: 400, height: 800 });
+    });
+  });
+
+  // ── Ambiguous selectors ───────────────────────────────────────────────────
+
+  describe('POST /elements/find with ambiguous selectors', () => {
+    it('reports how many elements the selector matched', async () => {
+      vi.mocked(elementRegistry.countMatches).mockResolvedValueOnce(4);
+      const res = await server.inject({
+        method: 'POST',
+        url: '/elements/find',
+        payload: { strategy: 'class name', selector: 'XCUIElementTypeCell' },
+      });
+      expect(JSON.parse(res.body).data.matchCount).toBe(4);
+    });
+
+    it('stores a reference per match when all is set', async () => {
+      vi.mocked(elementRegistry.countMatches).mockResolvedValueOnce(3);
+      const res = await server.inject({
+        method: 'POST',
+        url: '/elements/find',
+        payload: { strategy: 'class name', selector: 'XCUIElementTypeCell', all: true },
+      });
+      const body = JSON.parse(res.body);
+      expect(body.data.matchCount).toBe(3);
+      expect(body.data.elements).toHaveLength(3);
+      expect(elementRegistry.store).toHaveBeenCalledTimes(3);
+    });
+
+    it('passes the requested index through to the lookup', async () => {
+      await server.inject({
+        method: 'POST',
+        url: '/elements/find',
+        payload: { strategy: 'class name', selector: 'XCUIElementTypeCell', index: 2 },
+      });
+      expect(elementRegistry.findElement).toHaveBeenCalledWith(
+        'class name',
+        'XCUIElementTypeCell',
+        sessionManager,
+        2,
+      );
+    });
+  });
+
+  // ── Authentication ────────────────────────────────────────────────────────
+
+  describe('daemon token', () => {
+    let secured: FastifyInstance;
+
+    beforeEach(async () => {
+      secured = await buildServer({
+        sessionManager,
+        elementRegistry,
+        logger: mockLogger,
+        token: 's3cret',
+      });
+      await secured.ready();
+    });
+
+    afterEach(async () => {
+      await secured.close();
+    });
+
+    it('rejects a request with no token', async () => {
+      const res = await secured.inject({ method: 'GET', url: '/session' });
+      expect(res.statusCode).toBe(401);
+      expect(JSON.parse(res.body).error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('rejects a request with the wrong token', async () => {
+      const res = await secured.inject({
+        method: 'GET',
+        url: '/session',
+        headers: { 'x-appium-agent-token': 'wrong' },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('accepts a request carrying the right token', async () => {
+      const res = await secured.inject({
+        method: 'GET',
+        url: '/session',
+        headers: { 'x-appium-agent-token': 's3cret' },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('leaves /health reachable so liveness probes still work', async () => {
+      const res = await secured.inject({ method: 'GET', url: '/health' });
+      expect(res.statusCode).toBe(200);
     });
   });
 });

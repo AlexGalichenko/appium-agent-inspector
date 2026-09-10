@@ -1,4 +1,4 @@
-# Runtime daemon state
+# Runtime daemon state (legacy location; state now lives in ~/.appium-agent)
 .appium-agent/
 
 # Logs

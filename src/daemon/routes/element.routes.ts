@@ -1,71 +1,89 @@
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
-import {
-  ElementNotFoundError,
-  ElementRefNotFoundError,
-  SessionNotActiveError,
-} from '../../shared/errors.js';
-import { FindElementRequestSchema } from '../../shared/types.js';
-import type { SessionManager } from '../session-manager.js';
-import type { ElementRegistry } from '../element-registry.js';
+import { SessionNotActiveError, WaitTimeoutError } from '../../shared/errors.js';
+import { FindElementRequestSchema, WaitRequestSchema } from '../../shared/types.js';
+import type {
+  FindElementResponse,
+  FindElementsResponse,
+  WaitResponse,
+} from '../../shared/types.js';
+import { toWdioSelector } from '../element-registry.js';
+import { parseBody } from './helpers.js';
+import type { RouteDeps } from './helpers.js';
 
 export async function elementRoutes(
   fastify: FastifyInstance,
-  opts: { sessionManager: SessionManager; elementRegistry: ElementRegistry },
+  deps: RouteDeps,
 ): Promise<void> {
-  const { sessionManager, elementRegistry } = opts;
+  const { sessionManager, elementRegistry } = deps;
 
-  // POST /elements/find - find and register an element
+  // POST /elements/find - find and register one element (or all matches)
   fastify.post('/elements/find', async (request, reply) => {
-    const parseResult = FindElementRequestSchema.safeParse(request.body);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        ok: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid request body',
-          details: z.prettifyError(parseResult.error),
-        },
-      });
+    const { strategy, selector, index, all } = parseBody(
+      FindElementRequestSchema,
+      request.body,
+    );
+
+    // Verify the element is really in the current view hierarchy before storing
+    // a reference for it.
+    await elementRegistry.findElement(strategy, selector, sessionManager, index);
+
+    const sessionId = sessionManager.getSessionId();
+    if (sessionId === null) {
+      throw new SessionNotActiveError();
     }
 
-    const { strategy, selector } = parseResult.data;
+    const matchCount = await elementRegistry.countMatches(
+      strategy,
+      selector,
+      sessionManager,
+    );
+
+    if (all) {
+      const elements: FindElementResponse[] = [];
+      for (let i = 0; i < matchCount; i++) {
+        const ref = elementRegistry.store({ selector, strategy, sessionId, index: i });
+        elements.push(toFindResponse(ref, matchCount));
+      }
+      const data: FindElementsResponse = { matchCount, elements };
+      return reply.status(201).send({ ok: true, data });
+    }
+
+    const ref = elementRegistry.store({ selector, strategy, sessionId, index });
+    return reply.status(201).send({ ok: true, data: toFindResponse(ref, matchCount) });
+  });
+
+  // POST /elements/wait - block until an element reaches a condition
+  fastify.post('/elements/wait', async (request, reply) => {
+    const { strategy, selector, condition, timeout } = parseBody(
+      WaitRequestSchema,
+      request.body,
+    );
+
+    const driver = sessionManager.getDriver();
+    const element = driver.$(toWdioSelector(strategy, selector));
+    const startedAt = Date.now();
 
     try {
-      // Verify element exists in current view hierarchy
-      await elementRegistry.findElement(strategy, selector, sessionManager);
-
-      const sessionId = sessionManager.getSessionId();
-      if (sessionId === null) {
-        throw new SessionNotActiveError();
+      switch (condition) {
+        case 'existing':
+          await element.waitForExist({ timeout });
+          break;
+        case 'displayed':
+          await element.waitForDisplayed({ timeout });
+          break;
+        case 'enabled':
+          await element.waitForEnabled({ timeout });
+          break;
+        case 'gone':
+          await element.waitForExist({ timeout, reverse: true });
+          break;
       }
-
-      const ref = elementRegistry.store({ selector, strategy, sessionId });
-
-      return reply.status(201).send({
-        ok: true,
-        data: {
-          elementId: ref.id,
-          selector: ref.selector,
-          strategy: ref.strategy,
-          foundAt: ref.foundAt,
-        },
-      });
-    } catch (err) {
-      if (err instanceof SessionNotActiveError) {
-        return reply.status(409).send({
-          ok: false,
-          error: { code: err.code, message: err.message },
-        });
-      }
-      if (err instanceof ElementNotFoundError) {
-        return reply.status(404).send({
-          ok: false,
-          error: { code: err.code, message: err.message },
-        });
-      }
-      throw err;
+    } catch {
+      throw new WaitTimeoutError(condition, selector, timeout);
     }
+
+    const data: WaitResponse = { condition, selector, waitedMs: Date.now() - startedAt };
+    return reply.send({ ok: true, data });
   });
 
   // GET /elements - list all registered element references
@@ -75,17 +93,27 @@ export async function elementRoutes(
 
   // GET /elements/:id - inspect a specific element reference
   fastify.get<{ Params: { id: string } }>('/elements/:id', async (request, reply) => {
-    try {
-      const ref = elementRegistry.retrieve(request.params.id);
-      return reply.send({ ok: true, data: ref });
-    } catch (err) {
-      if (err instanceof ElementRefNotFoundError) {
-        return reply.status(404).send({
-          ok: false,
-          error: { code: err.code, message: err.message },
-        });
-      }
-      throw err;
-    }
+    const ref = elementRegistry.retrieve(request.params.id);
+    return reply.send({ ok: true, data: ref });
   });
+}
+
+function toFindResponse(
+  ref: {
+    id: string;
+    selector: string;
+    strategy: FindElementResponse['strategy'];
+    index: number;
+    foundAt: string;
+  },
+  matchCount: number,
+): FindElementResponse {
+  return {
+    elementId: ref.id,
+    selector: ref.selector,
+    strategy: ref.strategy,
+    index: ref.index,
+    foundAt: ref.foundAt,
+    matchCount,
+  };
 }

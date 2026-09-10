@@ -1,6 +1,7 @@
-import Fastify from 'fastify';
+import Fastify, { LogController } from 'fastify';
 import type { FastifyInstance } from 'fastify';
-import { AppiumAgentError } from '../shared/errors.js';
+import { AppiumAgentError, UnauthorizedError } from '../shared/errors.js';
+import { DAEMON_TOKEN_HEADER } from '../shared/constants.js';
 import type { Logger } from '../shared/logger.js';
 import type { SessionManager } from './session-manager.js';
 import type { ElementRegistry } from './element-registry.js';
@@ -12,15 +13,29 @@ export interface ServerDeps {
   sessionManager: SessionManager;
   elementRegistry: ElementRegistry;
   logger: Logger;
+  /** When set, every route except /health requires this token in a header. */
+  token?: string;
 }
 
+/** Routes reachable without the daemon token. */
+const PUBLIC_PATHS = new Set(['/health']);
+
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
-  const { sessionManager, elementRegistry, logger } = deps;
+  const { sessionManager, elementRegistry, logger, token } = deps;
 
   const fastify = Fastify({
     logger: false, // we use pino directly
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
   });
+
+  if (token !== undefined) {
+    fastify.addHook('onRequest', async (request) => {
+      if (PUBLIC_PATHS.has(request.url.split('?')[0] ?? request.url)) return;
+      if (request.headers[DAEMON_TOKEN_HEADER] !== token) {
+        throw new UnauthorizedError();
+      }
+    });
+  }
 
   // Request logging middleware
   fastify.addHook('onRequest', async (request) => {
@@ -51,9 +66,13 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     },
   );
 
-  // Health check
+  // Health check — also identifies the service, so a CLI probing a reused port
+  // can tell our daemon apart from whatever else is listening.
   fastify.get('/health', async (_request, reply) => {
-    return reply.send({ ok: true, data: { status: 'ok' } });
+    return reply.send({
+      ok: true,
+      data: { status: 'ok', service: 'appium-agent', pid: process.pid },
+    });
   });
 
   // Graceful shutdown endpoint
@@ -71,12 +90,17 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     process.exit(0);
   });
 
-  // Global error handler — must be set before registering child-scope routes
+  // Single error handler — every deliberate error carries its own status, so
+  // routes never map errors themselves.
   fastify.setErrorHandler(async (error, request, reply) => {
     if (error instanceof AppiumAgentError) {
-      return reply.status(500).send({
+      return reply.status(error.httpStatus).send({
         ok: false,
-        error: { code: error.code, message: error.message },
+        error: {
+          code: error.code,
+          message: error.message,
+          ...(error.details !== undefined && { details: error.details }),
+        },
       });
     }
 
@@ -92,9 +116,10 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
 
   // Register route plugins
   await fastify.register(async (instance) => {
-    await sessionRoutes(instance, { sessionManager, elementRegistry });
-    await elementRoutes(instance, { sessionManager, elementRegistry });
-    await actionRoutes(instance, { sessionManager, elementRegistry });
+    const routeDeps = { sessionManager, elementRegistry };
+    await sessionRoutes(instance, routeDeps);
+    await elementRoutes(instance, routeDeps);
+    await actionRoutes(instance, routeDeps);
   });
 
   return fastify;

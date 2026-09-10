@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { join } from 'node:path';
 import { registerInstall } from '../../../src/cli/commands/install.command.js';
+import { ValidationError } from '../../../src/shared/errors.js';
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
@@ -40,23 +41,22 @@ describe('install command', () => {
     vi.restoreAllMocks();
   });
 
-  it('exits with error when --skill is not provided', async () => {
-    await expect(
-      program.parseAsync(['node', 'appium-agent', 'install']),
-    ).rejects.toThrow('process.exit(1)');
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('--skill'));
+  it('raises a validation error when --skill is not provided', async () => {
+    await expect(program.parseAsync(['node', 'appium-agent', 'install'])).rejects.toThrow(
+      ValidationError,
+    );
+    await expect(program.parseAsync(['node', 'appium-agent', 'install'])).rejects.toThrow(
+      /--skill/,
+    );
   });
 
-  it('exits with error when bundled skill file is not found', async () => {
+  it('raises a validation error when bundled skill file is not found', async () => {
     const { existsSync } = await import('node:fs');
     vi.mocked(existsSync).mockReturnValue(false);
 
     await expect(
       program.parseAsync(['node', 'appium-agent', 'install', '--skill']),
-    ).rejects.toThrow('process.exit(1)');
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('bundled skill file not found'),
-    );
+    ).rejects.toThrow(/skill file not found/i);
   });
 
   it('creates the target .claude/skills directory with recursive option', async () => {
