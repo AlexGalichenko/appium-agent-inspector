@@ -3,8 +3,9 @@ import {
   ElementNotFoundError,
   ElementRefNotFoundError,
   StaleElementError,
+  ValidationError,
 } from '../../src/shared/errors.js';
-import { ElementRegistry } from '../../src/daemon/element-registry.js';
+import { ElementRegistry, toWdioSelector } from '../../src/daemon/element-registry.js';
 import type { SessionManager } from '../../src/daemon/session-manager.js';
 
 // ---------------------------------------------------------------------------
@@ -128,11 +129,19 @@ describe('ElementRegistry', () => {
         ['accessibility id', 'Login', '~Login'],
         ['id', 'btn', 'id=btn'],
         ['-android uiautomator', 'text("OK")', 'android=text("OK")'],
-        ['-ios predicate string', 'label == "OK"', 'ios=label == "OK"'],
-        ['-ios class chain', '**/XCUIElementTypeButton', 'ios=**/XCUIElementTypeButton'],
-        ['xpath', '//button', '//button'],
-        ['class name', 'XCUIElementTypeButton', 'XCUIElementTypeButton'],
-        ['css selector', '.btn', '.btn'],
+        ['-ios predicate string', 'label == "OK"', '-ios predicate string:label == "OK"'],
+        [
+          '-ios class chain',
+          '**/XCUIElementTypeButton',
+          '-ios class chain:**/XCUIElementTypeButton',
+        ],
+        ['xpath', '//button', 'xpath://button'],
+        [
+          'class name',
+          'androidx.recyclerview.widget.RecyclerView',
+          'class name:androidx.recyclerview.widget.RecyclerView',
+        ],
+        ['css selector', '.btn', 'css selector:.btn'],
       ];
 
       for (const [strategy, selector, expected] of cases) {
@@ -146,6 +155,19 @@ describe('ElementRegistry', () => {
         await registry.findElement(strategy, selector, sm);
         expect(driver.$).toHaveBeenCalledWith(expected);
       }
+    });
+
+    it('rejects a line break that the explicit strategy form would truncate at', () => {
+      expect(() => toWdioSelector('xpath', '//a\n/b')).toThrow(ValidationError);
+      expect(() => toWdioSelector('-ios predicate string', 'a == 1\r\n')).toThrow(
+        ValidationError,
+      );
+    });
+
+    it('keeps line breaks for prefix forms, which pass the whole value on', () => {
+      expect(toWdioSelector('accessibility id', 'Line one\nLine two')).toBe(
+        '~Line one\nLine two',
+      );
     });
   });
 
@@ -300,5 +322,96 @@ describe('ElementRegistry with ambiguous selectors', () => {
     await expect(
       registry.countMatches('class name', 'Cell', manager as never),
     ).resolves.toBe(0);
+  });
+
+  it('returns every current match from findAll', async () => {
+    const registry = new ElementRegistry();
+    const matches = [existing(), existing()];
+    const manager = makeManager(matches);
+    await expect(
+      registry.findAll('class name', 'Cell', manager as never),
+    ).resolves.toEqual(matches);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Positional references — list positions shift as content scrolls or updates,
+// so a reference must never silently act on whatever now sits at its index.
+// ---------------------------------------------------------------------------
+
+describe('ElementRegistry positional references', () => {
+  const cell = (text: string) => ({
+    isExisting: vi.fn().mockResolvedValue(true),
+    getText: vi.fn().mockResolvedValue(text),
+  });
+
+  function managerWith(elements: unknown[]) {
+    return {
+      getDriver: () => ({
+        $: vi.fn().mockReturnValue(elements[0]),
+        $$: vi.fn().mockResolvedValue(elements),
+      }),
+    } as never;
+  }
+
+  function storeAt(registry: ElementRegistry, index: number, fingerprint: string) {
+    return registry.store({
+      selector: 'Cell',
+      strategy: 'class name',
+      sessionId: 's1',
+      index,
+      fingerprint,
+    });
+  }
+
+  it('records a fingerprint only when one is given', () => {
+    const registry = new ElementRegistry();
+    expect(storeAt(registry, 1, 'Beta').fingerprint).toBe('Beta');
+    expect(
+      registry.store({ selector: 'Cell', strategy: 'class name', sessionId: 's1' }),
+    ).not.toHaveProperty('fingerprint');
+  });
+
+  it('returns the element at its index while the fingerprint still matches', async () => {
+    const registry = new ElementRegistry();
+    const beta = cell('Beta');
+    const ref = storeAt(registry, 1, 'Beta');
+
+    await expect(
+      registry.retrieveElement(ref.id, managerWith([cell('Alpha'), beta])),
+    ).resolves.toBe(beta);
+  });
+
+  it('follows the element to its new position after the list shifts', async () => {
+    const registry = new ElementRegistry();
+    const beta = cell('Beta');
+    const ref = storeAt(registry, 1, 'Beta');
+
+    // A row was inserted above: "Beta" moved from index 1 to 2.
+    await expect(
+      registry.retrieveElement(ref.id, managerWith([cell('New'), cell('Alpha'), beta])),
+    ).resolves.toBe(beta);
+    expect(registry.retrieve(ref.id).index).toBe(2);
+  });
+
+  it('reports stale instead of acting on a different element at the same index', async () => {
+    const registry = new ElementRegistry();
+    const ref = storeAt(registry, 1, 'Beta');
+
+    await expect(
+      registry.retrieveElement(ref.id, managerWith([cell('Gamma'), cell('Delta')])),
+    ).rejects.toThrow(StaleElementError);
+  });
+
+  it('reports stale when several other matches carry the fingerprint', async () => {
+    const registry = new ElementRegistry();
+    const ref = storeAt(registry, 0, 'Beta');
+
+    await expect(
+      registry.retrieveElement(
+        ref.id,
+        managerWith([cell('Alpha'), cell('Beta'), cell('Beta')]),
+      ),
+    ).rejects.toThrow(StaleElementError);
   });
 });

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DaemonNotRunningError } from '../../src/shared/errors.js';
-import { DaemonClient } from '../../src/cli/daemon-client.js';
+import { DaemonClient, scrollTimeoutMs } from '../../src/cli/daemon-client.js';
 
 vi.mock('../../src/shared/state-file.js', () => ({
   findRunningDaemon: vi.fn(),
@@ -307,6 +307,30 @@ describe('DaemonClient', () => {
       const longMs = timeoutSpy.mock.calls[1]?.[0] as number;
       expect(longMs).toBeGreaterThan(shortMs);
       timeoutSpy.mockRestore();
+    });
+  });
+
+  describe('scrollTimeoutMs', () => {
+    const target = { strategy: 'accessibility id' as const, selector: 'Submit' };
+
+    it('covers a plain scroll with the ordinary budget plus one swipe', () => {
+      expect(scrollTimeoutMs({ direction: 'down' })).toBeGreaterThan(30_000);
+      expect(scrollTimeoutMs({ direction: 'down', maxSwipes: 50 })).toBe(
+        scrollTimeoutMs({ direction: 'down' }),
+      );
+    });
+
+    it('grows with the number of swipes a targeted scroll may take', () => {
+      const few = scrollTimeoutMs({ toElement: target, maxSwipes: 2 });
+      const many = scrollTimeoutMs({ toElement: target, maxSwipes: 50 });
+      expect(many).toBeGreaterThan(few);
+    });
+
+    it('outlasts the longest scroll the daemon accepts', () => {
+      // 50 swipes of 5s each, with no allowance at all for visibility checks.
+      expect(
+        scrollTimeoutMs({ toElement: target, maxSwipes: 50, duration: 5000 }),
+      ).toBeGreaterThan(50 * 5000);
     });
   });
 });

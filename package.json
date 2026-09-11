@@ -1,6 +1,6 @@
 {
   "name": "appium-agent-inspector",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "CLI daemon for AI-driven mobile UI inspection and automation via Appium",
   "keywords": [
     "appium",
@@ -21,6 +21,9 @@
   "bin": {
     "appium-agent": "dist/cli/index.js",
     "appium-daemon": "dist/daemon/index.js"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   },
   "license": "MIT",
   "author": "Oleksandr Halchenko",
@@ -53,9 +56,6 @@
   "devDependencies": {
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^5.0.0",
-    "appium": "^3.7.0",
-    "appium-uiautomator2-driver": "^8.6.1",
-    "appium-xcuitest-driver": "^12.12.0",
     "oxlint": "^1.82.0",
     "prettier": "^3.9.6",
     "tsx": "^4.23.13",

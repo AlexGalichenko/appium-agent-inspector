@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ValidationError } from '../../../src/shared/errors.js';
-import { parseCaps } from '../../../src/cli/commands/connect.command.js';
+import {
+  parseCaps,
+  resolveAppCapability,
+} from '../../../src/cli/commands/connect.command.js';
 
 describe('parseCaps', () => {
   let dir: string;
@@ -55,5 +58,35 @@ describe('parseCaps', () => {
     const file = join(dir, 'bad.json');
     writeFileSync(file, 'nope');
     expect(() => parseCaps(file)).toThrow(/not valid JSON/);
+  });
+});
+
+describe('resolveAppCapability', () => {
+  const base = {
+    platformName: 'Android' as const,
+    'appium:automationName': 'UiAutomator2',
+  };
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'appium-app-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('makes a relative local app path absolute before it reaches Appium', () => {
+    writeFileSync(join(dir, 'app.apk'), '');
+    vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    expect(resolveAppCapability({ ...base, 'appium:app': 'app.apk' })).toEqual({
+      ...base,
+      'appium:app': join(dir, 'app.apk'),
+    });
+  });
+
+  it('leaves capabilities without an app unchanged', () => {
+    expect(resolveAppCapability(base)).toEqual(base);
   });
 });

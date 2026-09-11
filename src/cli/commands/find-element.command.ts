@@ -1,8 +1,8 @@
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
 import { makeOutput } from '../output.js';
+import { parseStrategy } from '../parse.js';
 import { parseIndex } from '../target.js';
-import { ValidationError } from '../../shared/errors.js';
 import { LocatorStrategySchema } from '../../shared/types.js';
 
 export function registerFindElement(program: Command): void {
@@ -25,15 +25,8 @@ export function registerFindElement(program: Command): void {
         index: string;
         all: boolean;
       }) => {
-        const parsed = LocatorStrategySchema.safeParse(opts.strategy);
-        if (!parsed.success) {
-          throw new ValidationError(
-            `Unknown locator strategy "${opts.strategy}". Valid strategies: ${LocatorStrategySchema.options.join(', ')}`,
-          );
-        }
-
         const req = {
-          strategy: parsed.data,
+          strategy: parseStrategy(opts.strategy),
           selector: opts.selector,
           index: parseIndex(opts.index),
           all: opts.all,

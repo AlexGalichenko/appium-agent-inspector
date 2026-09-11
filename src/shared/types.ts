@@ -1,4 +1,12 @@
 import { z } from 'zod';
+import {
+  APPIUM_DEFAULT_HOST,
+  APPIUM_DEFAULT_PATH,
+  APPIUM_DEFAULT_PORT,
+  DEFAULT_SCROLL_DURATION_MS,
+  DEFAULT_SCROLL_MAX_SWIPES,
+  DEFAULT_WAIT_TIMEOUT_MS,
+} from './constants.js';
 
 // ---------------------------------------------------------------------------
 // Locator strategies
@@ -21,10 +29,39 @@ export type LocatorStrategy = z.infer<typeof LocatorStrategySchema>;
 // Appium capabilities
 // ---------------------------------------------------------------------------
 
+/**
+ * Appium matches these names case-insensitively, so `"ios"` or `"UIAutomator2"`
+ * must not be rejected here. Known names are rewritten to their canonical
+ * spelling; anything else is passed through untouched.
+ */
+function canonicalName(known: readonly string[]) {
+  return (value: unknown) =>
+    typeof value === 'string'
+      ? (known.find((name) => name.toLowerCase() === value.toLowerCase()) ?? value)
+      : value;
+}
+
+const PLATFORM_NAMES = ['iOS', 'Android'] as const;
+const KNOWN_AUTOMATION_NAMES = [
+  'XCUITest',
+  'UiAutomator2',
+  'Espresso',
+  'Mac2',
+  'Flutter',
+  'Chromium',
+  'Gecko',
+  'Safari',
+  'Windows',
+] as const;
+
 export const AppiumCapabilitiesSchema = z
   .object({
-    platformName: z.enum(['iOS', 'Android']),
-    'appium:automationName': z.enum(['XCUITest', 'UiAutomator2', 'Espresso']),
+    platformName: z.preprocess(canonicalName(PLATFORM_NAMES), z.enum(PLATFORM_NAMES)),
+    // Third-party drivers register their own names, so only require one is given.
+    'appium:automationName': z.preprocess(
+      canonicalName(KNOWN_AUTOMATION_NAMES),
+      z.string().min(1),
+    ),
     'appium:deviceName': z.string().optional(),
     'appium:udid': z.string().optional(),
     'appium:app': z.string().optional(),
@@ -44,9 +81,9 @@ export type AppiumCapabilities = z.infer<typeof AppiumCapabilitiesSchema>;
 // ---------------------------------------------------------------------------
 
 export const AppiumServerConfigSchema = z.object({
-  hostname: z.string().default('localhost'),
-  port: z.number().int().positive().default(4723),
-  path: z.string().default('/'),
+  hostname: z.string().default(APPIUM_DEFAULT_HOST),
+  port: z.number().int().positive().default(APPIUM_DEFAULT_PORT),
+  path: z.string().default(APPIUM_DEFAULT_PATH),
 });
 
 export type AppiumServerConfig = z.infer<typeof AppiumServerConfigSchema>;
@@ -108,6 +145,13 @@ export interface ElementReference {
   index: number;
   foundAt: string;
   sessionId: string;
+  /**
+   * The element's text when it was found, recorded only for positional
+   * references (an ambiguous selector). Positions shift as lists scroll and
+   * recycle, so rehydration checks this to avoid silently acting on a
+   * different element.
+   */
+  fingerprint?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +236,7 @@ export const WaitRequestSchema = z.object({
   strategy: LocatorStrategySchema,
   selector: z.string().min(1),
   condition: WaitConditionSchema.default('displayed'),
-  timeout: z.number().int().positive().max(600_000).default(10_000),
+  timeout: z.number().int().positive().max(600_000).default(DEFAULT_WAIT_TIMEOUT_MS),
 });
 
 export type WaitRequest = z.infer<typeof WaitRequestSchema>;
@@ -222,8 +266,8 @@ export const ScrollRequestSchema = z.object({
       selector: z.string().min(1),
     })
     .optional(),
-  maxSwipes: z.number().int().positive().max(50).default(10),
-  duration: z.number().int().nonnegative().default(600),
+  maxSwipes: z.number().int().positive().max(50).default(DEFAULT_SCROLL_MAX_SWIPES),
+  duration: z.number().int().nonnegative().default(DEFAULT_SCROLL_DURATION_MS),
 });
 
 export type ScrollRequest = z.infer<typeof ScrollRequestSchema>;

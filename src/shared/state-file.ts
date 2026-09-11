@@ -1,15 +1,28 @@
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { CONFIG_DIR, DAEMON_STATE_FILE, DAEMON_TOKEN_HEADER } from './constants.js';
 import type { DaemonState } from './types.js';
 
+/** Owner-only: the directory holds the daemon token. Only applied when created. */
+const CONFIG_DIR_MODE = 0o700;
+const STATE_FILE_MODE = 0o600;
+
 export async function ensureConfigDir(): Promise<string> {
-  await mkdir(CONFIG_DIR, { recursive: true });
+  await mkdir(CONFIG_DIR, { recursive: true, mode: CONFIG_DIR_MODE });
   return CONFIG_DIR;
 }
 
+/**
+ * The state file carries the token that authorises every daemon request, so
+ * other local users must not be able to read it. `mode` only applies when the
+ * file is created; the chmod also tightens a file left by an older version.
+ */
 export async function writeDaemonState(state: DaemonState): Promise<void> {
-  await mkdir(CONFIG_DIR, { recursive: true });
-  await writeFile(DAEMON_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  await ensureConfigDir();
+  await writeFile(DAEMON_STATE_FILE, JSON.stringify(state, null, 2), {
+    encoding: 'utf8',
+    mode: STATE_FILE_MODE,
+  });
+  await chmod(DAEMON_STATE_FILE, STATE_FILE_MODE);
 }
 
 export async function readDaemonState(): Promise<DaemonState | null> {

@@ -4,6 +4,7 @@ import {
   DAEMON_HOST,
   DAEMON_LOG_FILE,
   DEFAULT_DAEMON_PORT,
+  SESSION_IDLE_TIMEOUT_MS,
 } from '../shared/constants.js';
 import { createLogger } from '../shared/logger.js';
 import { SessionManager } from './session-manager.js';
@@ -15,6 +16,12 @@ const logger = createLogger('daemon');
 
 /** Number of ports to try past the requested one before giving up. */
 const PORT_SCAN_RANGE = 20;
+
+/**
+ * Upper bound on a graceful shutdown. Kept below `daemon:kill`'s own wait so a
+ * device that stopped answering cannot make the kill report failure.
+ */
+const SHUTDOWN_FORCE_EXIT_MS = 8000;
 
 function isAddressInUse(err: unknown): boolean {
   return (err as NodeJS.ErrnoException)?.code === 'EADDRINUSE';
@@ -57,18 +64,31 @@ function parseArgs(argv: string[]): { port: number; fixedPort: boolean } {
 async function main() {
   const { port: requestedPort, fixedPort } = parseArgs(process.argv.slice(2));
 
-  const sessionManager = new SessionManager(logger);
+  const sessionManager = new SessionManager(logger, {
+    idleTimeoutMs: SESSION_IDLE_TIMEOUT_MS,
+  });
   const elementRegistry = new ElementRegistry();
 
   // Stored element references are only meaningful within a session.
   sessionManager.setSessionLostHandler(() => elementRegistry.invalidateAll());
 
-  const token = process.env['APPIUM_AGENT_TOKEN'] ?? nanoid(32);
-  const server = await buildServer({ sessionManager, elementRegistry, logger, token });
+  let shuttingDown = false;
 
-  // Graceful shutdown handler
-  async function shutdown(signal: string) {
-    logger.info({ signal }, 'Received shutdown signal');
+  async function forceExit(reason: string): Promise<never> {
+    logger.error({ reason }, 'Forcing daemon exit');
+    await removeDaemonStateIfOwnedBy(process.pid).catch(() => undefined);
+    process.exit(1);
+  }
+
+  async function shutdown(reason: string) {
+    shuttingDown = true;
+    logger.info({ reason }, 'Shutting down');
+
+    // Ending the session talks to the device, which may never answer.
+    setTimeout(() => {
+      void forceExit(`graceful shutdown exceeded ${SHUTDOWN_FORCE_EXIT_MS}ms`);
+    }, SHUTDOWN_FORCE_EXIT_MS);
+
     try {
       if (sessionManager.isActive()) {
         logger.info('Closing active Appium session');
@@ -80,12 +100,29 @@ async function main() {
       process.exit(0);
     } catch (err) {
       logger.error({ err }, 'Error during shutdown');
-      process.exit(1);
+      await forceExit('shutdown failed');
     }
   }
 
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
+  const token = process.env['APPIUM_AGENT_TOKEN'] ?? nanoid(32);
+  const server = await buildServer({
+    sessionManager,
+    elementRegistry,
+    logger,
+    token,
+    requestShutdown: (reason) => {
+      if (!shuttingDown) void shutdown(reason);
+    },
+  });
+
+  // A second signal while a shutdown is stuck means "stop now".
+  function onSignal(signal: NodeJS.Signals) {
+    if (shuttingDown) void forceExit(`second ${signal}`);
+    else void shutdown(signal);
+  }
+
+  process.on('SIGTERM', onSignal);
+  process.on('SIGINT', onSignal);
 
   const port = await listenWithFallback(server, requestedPort, !fixedPort);
 

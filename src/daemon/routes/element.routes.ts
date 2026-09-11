@@ -2,11 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { SessionNotActiveError, WaitTimeoutError } from '../../shared/errors.js';
 import { FindElementRequestSchema, WaitRequestSchema } from '../../shared/types.js';
 import type {
+  ElementReference,
   FindElementResponse,
   FindElementsResponse,
   WaitResponse,
 } from '../../shared/types.js';
-import { toWdioSelector } from '../element-registry.js';
+import { fingerprintOf, toWdioSelector } from '../element-registry.js';
 import { parseBody } from './helpers.js';
 import type { RouteDeps } from './helpers.js';
 
@@ -25,11 +26,37 @@ export async function elementRoutes(
 
     // Verify the element is really in the current view hierarchy before storing
     // a reference for it.
-    await elementRegistry.findElement(strategy, selector, sessionManager, index);
+    const element = await elementRegistry.findElement(
+      strategy,
+      selector,
+      sessionManager,
+      index,
+    );
 
     const sessionId = sessionManager.getSessionId();
     if (sessionId === null) {
       throw new SessionNotActiveError();
+    }
+
+    // References to one of several matches are positional, and positions shift
+    // as lists scroll. A fingerprint lets rehydration notice that.
+    if (all) {
+      const matches = await elementRegistry.findAll(strategy, selector, sessionManager);
+      const positional = matches.length > 1;
+      const elements: FindElementResponse[] = [];
+      for (let i = 0; i < matches.length; i++) {
+        const fingerprint = positional ? await fingerprintOf(matches[i]!) : undefined;
+        const ref = elementRegistry.store({
+          selector,
+          strategy,
+          sessionId,
+          index: i,
+          ...(fingerprint !== undefined && { fingerprint }),
+        });
+        elements.push(toFindResponse(ref, matches.length));
+      }
+      const data: FindElementsResponse = { matchCount: matches.length, elements };
+      return reply.status(201).send({ ok: true, data });
     }
 
     const matchCount = await elementRegistry.countMatches(
@@ -37,18 +64,14 @@ export async function elementRoutes(
       selector,
       sessionManager,
     );
-
-    if (all) {
-      const elements: FindElementResponse[] = [];
-      for (let i = 0; i < matchCount; i++) {
-        const ref = elementRegistry.store({ selector, strategy, sessionId, index: i });
-        elements.push(toFindResponse(ref, matchCount));
-      }
-      const data: FindElementsResponse = { matchCount, elements };
-      return reply.status(201).send({ ok: true, data });
-    }
-
-    const ref = elementRegistry.store({ selector, strategy, sessionId, index });
+    const fingerprint = matchCount > 1 ? await fingerprintOf(element) : undefined;
+    const ref = elementRegistry.store({
+      selector,
+      strategy,
+      sessionId,
+      index,
+      ...(fingerprint !== undefined && { fingerprint }),
+    });
     return reply.status(201).send({ ok: true, data: toFindResponse(ref, matchCount) });
   });
 
@@ -59,28 +82,32 @@ export async function elementRoutes(
       request.body,
     );
 
-    const driver = sessionManager.getDriver();
-    const element = driver.$(toWdioSelector(strategy, selector));
+    const wdioSelector = toWdioSelector(strategy, selector);
     const startedAt = Date.now();
 
-    try {
-      switch (condition) {
-        case 'existing':
-          await element.waitForExist({ timeout });
-          break;
-        case 'displayed':
-          await element.waitForDisplayed({ timeout });
-          break;
-        case 'enabled':
-          await element.waitForEnabled({ timeout });
-          break;
-        case 'gone':
-          await element.waitForExist({ timeout, reverse: true });
-          break;
+    // wdio polls the condition; under the implicit wait a single poll for an
+    // absent element can outlast the whole requested timeout.
+    await sessionManager.withoutImplicitWait(async (driver) => {
+      const element = driver.$(wdioSelector);
+      try {
+        switch (condition) {
+          case 'existing':
+            await element.waitForExist({ timeout });
+            break;
+          case 'displayed':
+            await element.waitForDisplayed({ timeout });
+            break;
+          case 'enabled':
+            await element.waitForEnabled({ timeout });
+            break;
+          case 'gone':
+            await element.waitForExist({ timeout, reverse: true });
+            break;
+        }
+      } catch {
+        throw new WaitTimeoutError(condition, selector, timeout);
       }
-    } catch {
-      throw new WaitTimeoutError(condition, selector, timeout);
-    }
+    });
 
     const data: WaitResponse = { condition, selector, waitedMs: Date.now() - startedAt };
     return reply.send({ ok: true, data });
@@ -98,16 +125,7 @@ export async function elementRoutes(
   });
 }
 
-function toFindResponse(
-  ref: {
-    id: string;
-    selector: string;
-    strategy: FindElementResponse['strategy'];
-    index: number;
-    foundAt: string;
-  },
-  matchCount: number,
-): FindElementResponse {
+function toFindResponse(ref: ElementReference, matchCount: number): FindElementResponse {
   return {
     elementId: ref.id,
     selector: ref.selector,

@@ -1,9 +1,17 @@
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
 import { makeOutput } from '../output.js';
+import { parseChoice, parseInteger, parseStrategy } from '../parse.js';
 import { ValidationError } from '../../shared/errors.js';
-import { LocatorStrategySchema, ScrollDirectionSchema } from '../../shared/types.js';
+import {
+  DEFAULT_SCROLL_DURATION_MS,
+  DEFAULT_SCROLL_MAX_SWIPES,
+} from '../../shared/constants.js';
+import { ScrollDirectionSchema } from '../../shared/types.js';
 import type { ScrollRequest } from '../../shared/types.js';
+
+/** Mirrors the daemon's ScrollRequestSchema bound, so it fails before any request. */
+const MAX_SWIPES_LIMIT = 50;
 
 export function registerScroll(program: Command): void {
   const out = makeOutput(program);
@@ -22,7 +30,11 @@ export function registerScroll(program: Command): void {
       'Scroll until this element exists: locator strategy',
     )
     .option('--to-selector <selector>', 'Scroll until this element exists: selector')
-    .option('--max-swipes <n>', 'Give up after this many swipes', '10')
+    .option(
+      '--max-swipes <n>',
+      'Give up after this many swipes',
+      String(DEFAULT_SCROLL_MAX_SWIPES),
+    )
     .action(
       async (opts: {
         direction: string;
@@ -31,13 +43,6 @@ export function registerScroll(program: Command): void {
         toSelector?: string;
         maxSwipes: string;
       }) => {
-        const direction = ScrollDirectionSchema.safeParse(opts.direction);
-        if (!direction.success) {
-          throw new ValidationError(
-            `Unknown direction "${opts.direction}". Valid directions: ${ScrollDirectionSchema.options.join(', ')}`,
-          );
-        }
-
         const percent = Number(opts.percent);
         if (!Number.isFinite(percent) || percent <= 0 || percent > 0.95) {
           throw new ValidationError(
@@ -45,18 +50,19 @@ export function registerScroll(program: Command): void {
           );
         }
 
-        const maxSwipes = Number(opts.maxSwipes);
-        if (!Number.isInteger(maxSwipes) || maxSwipes <= 0) {
-          throw new ValidationError(
-            `--max-swipes must be a positive integer, got "${opts.maxSwipes}".`,
-          );
-        }
-
         const req: ScrollRequest = {
-          direction: direction.data,
+          direction: parseChoice(
+            ScrollDirectionSchema.options,
+            opts.direction,
+            'direction',
+            'directions',
+          ),
           percent,
-          maxSwipes,
-          duration: 600,
+          maxSwipes: parseInteger(opts.maxSwipes, '--max-swipes', {
+            min: 1,
+            max: MAX_SWIPES_LIMIT,
+          }),
+          duration: DEFAULT_SCROLL_DURATION_MS,
         };
 
         if (opts.toStrategy !== undefined || opts.toSelector !== undefined) {
@@ -65,13 +71,10 @@ export function registerScroll(program: Command): void {
               'Scrolling to an element needs both --to-strategy and --to-selector.',
             );
           }
-          const strategy = LocatorStrategySchema.safeParse(opts.toStrategy);
-          if (!strategy.success) {
-            throw new ValidationError(
-              `Unknown locator strategy "${opts.toStrategy}". Valid strategies: ${LocatorStrategySchema.options.join(', ')}`,
-            );
-          }
-          req.toElement = { strategy: strategy.data, selector: opts.toSelector };
+          req.toElement = {
+            strategy: parseStrategy(opts.toStrategy),
+            selector: opts.toSelector,
+          };
         }
 
         const client = await DaemonClient.fromDaemonState();

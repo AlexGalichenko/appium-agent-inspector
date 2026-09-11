@@ -3,12 +3,16 @@ import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
 import { makeOutput } from '../output.js';
+import { parseInteger } from '../parse.js';
+import { resolveLocalPath } from '../paths.js';
 import { ValidationError } from '../../shared/errors.js';
-import type { AppiumServerConfig } from '../../shared/types.js';
 import {
-  AppiumCapabilitiesSchema,
-  AppiumServerConfigSchema,
-} from '../../shared/types.js';
+  APPIUM_DEFAULT_HOST,
+  APPIUM_DEFAULT_PATH,
+  APPIUM_DEFAULT_PORT,
+} from '../../shared/constants.js';
+import type { AppiumCapabilities } from '../../shared/types.js';
+import { AppiumCapabilitiesSchema } from '../../shared/types.js';
 
 export function registerConnect(program: Command): void {
   const out = makeOutput(program);
@@ -20,9 +24,9 @@ export function registerConnect(program: Command): void {
       '--caps <json>',
       'Appium capabilities: a JSON string or a path to a JSON file',
     )
-    .option('--server-host <host>', 'Appium server hostname', 'localhost')
-    .option('--server-port <port>', 'Appium server port', '4723')
-    .option('--server-path <path>', 'Appium server base path', '/')
+    .option('--server-host <host>', 'Appium server hostname', APPIUM_DEFAULT_HOST)
+    .option('--server-port <port>', 'Appium server port', String(APPIUM_DEFAULT_PORT))
+    .option('--server-path <path>', 'Appium server base path', APPIUM_DEFAULT_PATH)
     .action(
       async (opts: {
         caps: string;
@@ -37,22 +41,17 @@ export function registerConnect(program: Command): void {
           );
         }
 
-        const port = Number(opts.serverPort);
-        if (!Number.isInteger(port) || port <= 0) {
-          throw new ValidationError(
-            `--server-port must be a positive integer, got "${opts.serverPort}".`,
-          );
-        }
-
-        const serverPartial: Partial<AppiumServerConfig> = {
+        const server = {
           hostname: opts.serverHost,
-          port,
+          port: parseInteger(opts.serverPort, '--server-port', { min: 1, max: 65535 }),
           path: opts.serverPath,
         };
-        const server = AppiumServerConfigSchema.partial().parse(serverPartial);
 
         const client = await DaemonClient.fromDaemonState();
-        const result = await client.startSession({ capabilities: parsed.data, server });
+        const result = await client.startSession({
+          capabilities: resolveAppCapability(parsed.data),
+          server,
+        });
 
         out.emit(result, () => {
           console.log(`Session started: ${result.sessionId}`);
@@ -93,4 +92,11 @@ export function parseCaps(input: string): unknown {
       `Capabilities file ${path} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+}
+
+/** A relative `appium:app` would be resolved by the Appium server, not here. */
+export function resolveAppCapability(caps: AppiumCapabilities): AppiumCapabilities {
+  const app = caps['appium:app'];
+  if (app === undefined) return caps;
+  return { ...caps, 'appium:app': resolveLocalPath(app) };
 }
