@@ -35,10 +35,25 @@ import {
   CLI_LONG_REQUEST_TIMEOUT_MS,
   CLI_REQUEST_TIMEOUT_MS,
   DAEMON_TOKEN_HEADER,
-  DEFAULT_WAIT_TIMEOUT_MS,
   DEFAULT_DAEMON_PORT,
+  DEFAULT_SCROLL_DURATION_MS,
+  DEFAULT_SCROLL_MAX_SWIPES,
+  DEFAULT_WAIT_TIMEOUT_MS,
+  SCROLL_CHECK_ALLOWANCE_MS,
 } from '../shared/constants.js';
 import { findRunningDaemon } from '../shared/state-file.js';
+
+/**
+ * Scrolling to an element swipes and re-checks up to `maxSwipes` times, so a
+ * fixed timeout would abort a scroll the daemon is still legitimately running.
+ */
+export function scrollTimeoutMs(req: ScrollInput): number {
+  const swipes =
+    req.toElement === undefined ? 1 : (req.maxSwipes ?? DEFAULT_SCROLL_MAX_SWIPES);
+  const perSwipeMs =
+    (req.duration ?? DEFAULT_SCROLL_DURATION_MS) + SCROLL_CHECK_ALLOWANCE_MS;
+  return CLI_REQUEST_TIMEOUT_MS + swipes * perSwipeMs;
+}
 
 interface RequestOptions {
   body?: unknown;
@@ -184,7 +199,7 @@ export class DaemonClient {
   async scroll(req: ScrollInput): Promise<ScrollResponse> {
     return this.request<ScrollResponse>('POST', '/actions/scroll', {
       body: req,
-      timeoutMs: CLI_LONG_REQUEST_TIMEOUT_MS,
+      timeoutMs: scrollTimeoutMs(req),
     });
   }
 

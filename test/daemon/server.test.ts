@@ -34,6 +34,7 @@ const ELEMENT_REF = {
 const MOCK_ELEMENT = {
   click: vi.fn().mockResolvedValue(undefined),
   setValue: vi.fn().mockResolvedValue(undefined),
+  addValue: vi.fn().mockResolvedValue(undefined),
   clearValue: vi.fn().mockResolvedValue(undefined),
   getAttribute: vi.fn().mockResolvedValue('1'),
   getLocation: vi.fn().mockResolvedValue({ x: 10, y: 20 }),
@@ -52,7 +53,7 @@ const MOCK_ACTION_CHAIN = {
 function makeSessionManager(
   overrides: Partial<Record<keyof SessionManager, unknown>> = {},
 ) {
-  return {
+  const manager: SessionManager = {
     startSession: vi.fn().mockResolvedValue(SESSION_META),
     endSession: vi.fn().mockResolvedValue(undefined),
     getDriver: vi.fn().mockReturnValue({
@@ -95,8 +96,15 @@ function makeSessionManager(
     getSessionMeta: vi.fn().mockReturnValue(SESSION_META),
     isActive: vi.fn().mockReturnValue(false),
     getSessionId: vi.fn().mockReturnValue('sess-1'),
+    touch: vi.fn(),
+    markSessionLost: vi.fn(),
+    // Like the real manager, hands the callback whatever driver is current.
+    withoutImplicitWait: vi.fn(async (fn: (driver: unknown) => Promise<unknown>) =>
+      fn(manager.getDriver()),
+    ),
     ...overrides,
   } as unknown as SessionManager;
+  return manager;
 }
 
 function makeElementRegistry(overrides: Partial<Record<string, unknown>> = {}) {
@@ -105,6 +113,7 @@ function makeElementRegistry(overrides: Partial<Record<string, unknown>> = {}) {
     retrieve: vi.fn().mockReturnValue(ELEMENT_REF),
     findElement: vi.fn().mockResolvedValue(MOCK_ELEMENT),
     countMatches: vi.fn().mockResolvedValue(1),
+    findAll: vi.fn().mockResolvedValue([MOCK_ELEMENT]),
     retrieveElement: vi.fn().mockResolvedValue(MOCK_ELEMENT),
     invalidateAll: vi.fn(),
     list: vi.fn().mockReturnValue([ELEMENT_REF]),
@@ -120,6 +129,12 @@ const mockLogger = {
   child: vi.fn(),
 } as never;
 
+const requestShutdown = vi.fn();
+
+function webDriverError(name: string, message = 'reported by the driver') {
+  return Object.assign(new Error(message), { name });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -133,7 +148,12 @@ describe('buildServer', () => {
     vi.clearAllMocks();
     sessionManager = makeSessionManager();
     elementRegistry = makeElementRegistry();
-    server = await buildServer({ sessionManager, elementRegistry, logger: mockLogger });
+    server = await buildServer({
+      sessionManager,
+      elementRegistry,
+      logger: mockLogger,
+      requestShutdown,
+    });
     await server.ready();
   });
 
@@ -154,28 +174,34 @@ describe('buildServer', () => {
     });
   });
 
+  // ── Activity tracking ─────────────────────────────────────────────────────
+
+  describe('activity tracking', () => {
+    it('records activity for API requests, postponing the idle timeout', async () => {
+      await server.inject({ method: 'GET', url: '/session' });
+      expect(sessionManager.touch).toHaveBeenCalled();
+    });
+
+    it('does not count health probes as activity', async () => {
+      await server.inject({ method: 'GET', url: '/health' });
+      expect(sessionManager.touch).not.toHaveBeenCalled();
+    });
+  });
+
   // ── Shutdown ──────────────────────────────────────────────────────────────
 
   describe('POST /daemon/shutdown', () => {
-    it('returns 200 and calls process.exit', async () => {
+    it('replies, then hands off to the daemon shutdown sequence', async () => {
       const exitSpy = vi
         .spyOn(process, 'exit')
         .mockImplementation((() => undefined) as never);
       const res = await server.inject({ method: 'POST', url: '/daemon/shutdown' });
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body).ok).toBe(true);
-      exitSpy.mockRestore();
-    });
-
-    it('calls endSession if session is active before exiting', async () => {
-      const exitSpy = vi
-        .spyOn(process, 'exit')
-        .mockImplementation((() => undefined) as never);
-      sessionManager = makeSessionManager({ isActive: vi.fn().mockReturnValue(true) });
-      server = await buildServer({ sessionManager, elementRegistry, logger: mockLogger });
-      await server.ready();
-      await server.inject({ method: 'POST', url: '/daemon/shutdown' });
-      expect(sessionManager.endSession).toHaveBeenCalled();
+      await vi.waitFor(() => expect(requestShutdown).toHaveBeenCalledWith('HTTP'));
+      // Exiting is the shutdown sequence's job, after the session and state file
+      // are cleaned up — never the route's.
+      expect(exitSpy).not.toHaveBeenCalled();
       exitSpy.mockRestore();
     });
   });
@@ -379,34 +405,39 @@ describe('buildServer', () => {
   });
 
   describe('POST /actions/type', () => {
-    it('types text into element', async () => {
+    // wdio's setValue clears before typing; only addValue keeps existing text.
+    it('appends to existing text by default', async () => {
       const res = await server.inject({
         method: 'POST',
         url: '/actions/type',
         payload: { elementId: 'ref-1', text: 'hello' },
       });
       expect(res.statusCode).toBe(200);
-      expect(MOCK_ELEMENT.setValue).toHaveBeenCalledWith('hello');
+      expect(MOCK_ELEMENT.addValue).toHaveBeenCalledWith('hello');
+      expect(MOCK_ELEMENT.setValue).not.toHaveBeenCalled();
+      expect(MOCK_ELEMENT.clearValue).not.toHaveBeenCalled();
     });
 
-    it('clears field first when clearFirst is true', async () => {
+    it('replaces the contents when clearFirst is true', async () => {
       const res = await server.inject({
         method: 'POST',
         url: '/actions/type',
         payload: { elementId: 'ref-1', text: 'hello', clearFirst: true },
       });
       expect(res.statusCode).toBe(200);
-      expect(MOCK_ELEMENT.clearValue).toHaveBeenCalled();
+      expect(MOCK_ELEMENT.setValue).toHaveBeenCalledWith('hello');
+      expect(MOCK_ELEMENT.addValue).not.toHaveBeenCalled();
     });
 
-    it('does not clear field when clearFirst is false', async () => {
-      vi.mocked(MOCK_ELEMENT.clearValue).mockClear();
+    it('does not clear the field when clearFirst is false', async () => {
       const res = await server.inject({
         method: 'POST',
         url: '/actions/type',
         payload: { elementId: 'ref-1', text: 'hello', clearFirst: false },
       });
       expect(res.statusCode).toBe(200);
+      expect(MOCK_ELEMENT.addValue).toHaveBeenCalledWith('hello');
+      expect(MOCK_ELEMENT.setValue).not.toHaveBeenCalled();
       expect(MOCK_ELEMENT.clearValue).not.toHaveBeenCalled();
     });
   });
@@ -827,6 +858,36 @@ describe('buildServer', () => {
       expect(body.error.code).toBe('INTERNAL_ERROR');
       expect(body.error.message).toBe('unexpected boom');
     });
+
+    it.each([
+      ['no such element', 404, 'ELEMENT_NOT_FOUND'],
+      ['stale element reference', 410, 'STALE_ELEMENT'],
+      ['invalid selector', 400, 'INVALID_SELECTOR'],
+      ['element not interactable', 409, 'ELEMENT_NOT_INTERACTABLE'],
+    ])('maps a WebDriver "%s" error to %i %s', async (name, status, code) => {
+      vi.mocked(MOCK_ELEMENT.click).mockRejectedValueOnce(webDriverError(name));
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/click',
+        payload: { elementId: 'ref-1' },
+      });
+      expect(res.statusCode).toBe(status);
+      expect(JSON.parse(res.body).error.code).toBe(code);
+      expect(sessionManager.markSessionLost).not.toHaveBeenCalled();
+    });
+
+    it('discards the session when Appium reports it no longer exists', async () => {
+      const driver = vi.mocked(sessionManager.getDriver)();
+      vi.mocked(
+        driver.getPageSource as unknown as () => Promise<string>,
+      ).mockRejectedValueOnce(webDriverError('invalid session id'));
+
+      const res = await server.inject({ method: 'GET', url: '/actions/page-source' });
+
+      expect(res.statusCode).toBe(409);
+      expect(JSON.parse(res.body).error.code).toBe('SESSION_NOT_ACTIVE');
+      expect(sessionManager.markSessionLost).toHaveBeenCalled();
+    });
   });
   // ── Previously uncovered action routes ────────────────────────────────────
 
@@ -998,6 +1059,8 @@ describe('buildServer', () => {
       const body = JSON.parse(res.body);
       expect(body.data.found).toBe(true);
       expect(body.data.swipes).toBe(0);
+      // Visibility polling must not pay the implicit wait on every check.
+      expect(sessionManager.withoutImplicitWait).toHaveBeenCalled();
     });
 
     it('gives up after maxSwipes when the element never appears', async () => {
@@ -1049,6 +1112,7 @@ describe('buildServer', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body).data.condition).toBe('displayed');
+      expect(sessionManager.withoutImplicitWait).toHaveBeenCalled();
     });
 
     it('returns 408 when the condition is never met', async () => {
@@ -1133,8 +1197,11 @@ describe('buildServer', () => {
       expect(JSON.parse(res.body).data.matchCount).toBe(4);
     });
 
-    it('stores a reference per match when all is set', async () => {
-      vi.mocked(elementRegistry.countMatches).mockResolvedValueOnce(3);
+    it('stores a fingerprinted reference per match when all is set', async () => {
+      const cells = ['Alpha', 'Beta', 'Gamma'].map((text) => ({
+        getText: vi.fn().mockResolvedValue(text),
+      }));
+      vi.mocked(elementRegistry.findAll).mockResolvedValueOnce(cells as never);
       const res = await server.inject({
         method: 'POST',
         url: '/elements/find',
@@ -1144,6 +1211,32 @@ describe('buildServer', () => {
       expect(body.data.matchCount).toBe(3);
       expect(body.data.elements).toHaveLength(3);
       expect(elementRegistry.store).toHaveBeenCalledTimes(3);
+      expect(elementRegistry.store).toHaveBeenCalledWith(
+        expect.objectContaining({ index: 2, fingerprint: 'Gamma' }),
+      );
+    });
+
+    it('fingerprints a single reference when its selector is ambiguous', async () => {
+      vi.mocked(elementRegistry.countMatches).mockResolvedValueOnce(2);
+      await server.inject({
+        method: 'POST',
+        url: '/elements/find',
+        payload: { strategy: 'class name', selector: 'XCUIElementTypeCell' },
+      });
+      expect(elementRegistry.store).toHaveBeenCalledWith(
+        expect.objectContaining({ fingerprint: 'Sign in' }),
+      );
+    });
+
+    it('leaves a unique match without a fingerprint', async () => {
+      await server.inject({
+        method: 'POST',
+        url: '/elements/find',
+        payload: { strategy: 'accessibility id', selector: 'Login' },
+      });
+      expect(vi.mocked(elementRegistry.store).mock.calls[0]?.[0]).not.toHaveProperty(
+        'fingerprint',
+      );
     });
 
     it('passes the requested index through to the lookup', async () => {
@@ -1172,6 +1265,7 @@ describe('buildServer', () => {
         elementRegistry,
         logger: mockLogger,
         token: 's3cret',
+        requestShutdown,
       });
       await secured.ready();
     });

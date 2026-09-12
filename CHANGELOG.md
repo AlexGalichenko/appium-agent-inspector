@@ -1,6 +1,35 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0]
+
+### Fixed
+
+- **`-ios predicate string` and `-ios class chain` never worked.** Both were sent as `ios=…`, which webdriverio routes to the long-removed `-ios uiautomation` strategy. `class name` selectors outside `XCUIElementType*` / `android.widget.*` / `android.view.*` (e.g. `androidx…`) were sent as CSS selectors. These strategies now use webdriverio's explicit `<strategy>:<selector>` form, verified by a contract test against a real webdriverio client.
+- **`type` without `--clear` still cleared the field**, because webdriverio's `setValue` always clears first. Text is now appended unless `--clear` is given.
+- **Negative lookups no longer block for the implicit wait while polling.** `scroll --to-selector` waited 5s per swipe for an absent element, so a long scroll outlived the CLI's timeout while the daemon kept swiping; `wait` could time out before its first poll returned. Both now poll with the implicit wait at zero, and the CLI scales the scroll timeout with `--max-swipes`.
+- **Two concurrent `connect` calls opened two Appium sessions**, leaking one on the server. A second call during startup now fails with `SESSION_ALREADY_ACTIVE`. A session whose timeouts cannot be configured is deleted rather than leaked.
+- **Heartbeats no longer pile up behind a long command** (an install, a video stop) and discard a healthy session.
+- **Relative app paths** passed to `install-app` or as `appium:app` were resolved by the Appium server against its own working directory. They are now resolved where the command runs.
+- **The state file holding the daemon token was world-readable.** It is now written `0600`, in a `0700` directory.
+- **`POST /daemon/shutdown` exited without closing the server or removing the state file.** It now runs the same shutdown sequence as a signal. Shutdown is bounded at 8s, so an unresponsive device cannot keep the daemon alive, and a second Ctrl+C exits immediately.
+- **Concurrent `daemon:start` calls could orphan a daemon.** Starts are now serialised by a lock file, only the daemon just spawned counts as started, and a daemon that exits during startup fails at once (`DAEMON_START_FAILED`) instead of after 15s.
+- **Positional element references silently retargeted** when a list shifted. References from an ambiguous selector record the element's text; rehydration follows the element to its new index or reports `STALE_ELEMENT`.
+- Capabilities were matched case-sensitively and limited to three automation names; `"ios"`, `"UIAutomator2"`, and third-party drivers are now accepted.
+- An invalid `DAEMON_PORT` became `NaN`; malformed numeric environment variables now fall back to their default with a warning.
+
+### Added
+
+- **Session idle timeout** — a session with no requests for 30 minutes is ended, releasing the device. Configure with `APPIUM_AGENT_IDLE_TIMEOUT_MS` (`0` disables).
+- WebDriver errors map to stable codes (`ELEMENT_NOT_FOUND`, `STALE_ELEMENT`, `INVALID_SELECTOR`, `ELEMENT_NOT_INTERACTABLE`) instead of `INTERNAL_ERROR`. An `invalid session id` error discards the dead session and reports `SESSION_NOT_ACTIVE`.
+- `APPIUM_AGENT_PORT` environment variable; `DAEMON_PORT` is still read as a fallback.
+- Release workflow checks that the tag matches `package.json`, and runs the format and package-size checks. Dependabot for npm and GitHub Actions.
+
+### Changed
+
+- **Node.js 22.12+ is required** (`commander` 15 and `nanoid` 6 already needed it). `engines` is now declared, and CI tests Node 22, 24, and 26.
+- The bundled Claude skill documents the new `type` append semantics, `css selector`, single-line selector rule, positional reference tracking, session idle timeout, and new error codes. Re-run `appium-agent install --skill` to update an installed copy.
+- CLI numeric flags validate their upper bounds locally (`--port`, `--server-port`, `--timeout`, `--max-swipes`), with flag and choice validation shared in `src/cli/parse.ts`.
+- Removed the unused `src/config/capabilities.ts` helpers and the `appium`, `appium-xcuitest-driver`, and `appium-uiautomator2-driver` devDependencies (215 MB); install Appium and its drivers separately.
 
 ## [0.3.0] — 2026-09-10
 

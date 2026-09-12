@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ValidationError } from '../../shared/errors.js';
+import type { ElementTarget } from '../../shared/types.js';
 import type { SessionManager } from '../session-manager.js';
 import type { ElementRegistry } from '../element-registry.js';
 
@@ -23,30 +24,16 @@ export function parseBody<S extends z.ZodType>(schema: S, body: unknown): z.infe
 
 /** Resolves either `{ elementId }` or `{ strategy, selector, index }` to a live element. */
 export async function resolveElement(
-  body: unknown,
+  target: ElementTarget,
   { sessionManager, elementRegistry }: RouteDeps,
 ) {
-  const target = body as {
-    elementId?: string;
-    strategy?: never;
-    selector?: string;
-    index?: number;
-  };
-
-  if (typeof target.elementId === 'string') {
+  if ('elementId' in target) {
     return elementRegistry.retrieveElement(target.elementId, sessionManager);
   }
-
-  const located = body as {
-    strategy: Parameters<ElementRegistry['findElement']>[0];
-    selector: string;
-    index?: number;
-  };
-
   return elementRegistry.findElement(
-    located.strategy,
-    located.selector,
+    target.strategy,
+    target.selector,
     sessionManager,
-    located.index ?? 0,
+    target.index,
   );
 }

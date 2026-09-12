@@ -8,6 +8,7 @@ import {
 import type { DaemonState } from '../../src/shared/types.js';
 
 vi.mock('node:fs/promises', () => ({
+  chmod: vi.fn().mockResolvedValue(undefined),
   mkdir: vi.fn().mockResolvedValue(undefined),
   writeFile: vi.fn().mockResolvedValue(undefined),
   readFile: vi.fn(),
@@ -21,17 +22,24 @@ const state: DaemonState = {
 };
 
 describe('writeDaemonState', () => {
-  it('creates the config dir and writes JSON', async () => {
+  it('creates an owner-only config dir and writes JSON', async () => {
     const { mkdir, writeFile } = await import('node:fs/promises');
     await writeDaemonState(state);
     expect(mkdir).toHaveBeenCalledWith(expect.stringContaining('.appium-agent'), {
       recursive: true,
+      mode: 0o700,
     });
     expect(writeFile).toHaveBeenCalledWith(
       expect.stringContaining('daemon.json'),
       JSON.stringify(state, null, 2),
-      'utf8',
+      { encoding: 'utf8', mode: 0o600 },
     );
+  });
+
+  it('keeps the token-bearing file unreadable to other users, even if it existed', async () => {
+    const { chmod } = await import('node:fs/promises');
+    await writeDaemonState(state);
+    expect(chmod).toHaveBeenCalledWith(expect.stringContaining('daemon.json'), 0o600);
   });
 });
 

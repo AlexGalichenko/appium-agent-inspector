@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { ValidationError } from '../shared/errors.js';
-import { LocatorStrategySchema } from '../shared/types.js';
 import type { ElementTarget } from '../shared/types.js';
+import { parseInteger, parseStrategy } from './parse.js';
 
 /**
  * Every element-facing command accepts the same target: either a stored
@@ -33,30 +33,13 @@ export function resolveTarget(opts: TargetOptions): ElementTarget {
     );
   }
 
-  const parsed = LocatorStrategySchema.safeParse(opts.strategy);
-  if (!parsed.success) {
-    throw new ValidationError(
-      `Unknown locator strategy "${opts.strategy}". Valid strategies: ${LocatorStrategySchema.options.join(', ')}`,
-    );
-  }
-
   return {
-    strategy: parsed.data,
+    strategy: parseStrategy(opts.strategy),
     selector: opts.selector,
     index: parseIndex(opts.index),
   };
 }
 
 export function parseIndex(raw: string | undefined): number {
-  if (raw === undefined) return 0;
-  // Number('') and Number('  ') are both 0, which would silently accept an
-  // empty --index instead of reporting it.
-  if (raw.trim() === '') {
-    throw new ValidationError('--index must be a non-negative integer, but was empty.');
-  }
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 0) {
-    throw new ValidationError(`--index must be a non-negative integer, got "${raw}".`);
-  }
-  return n;
+  return raw === undefined ? 0 : parseInteger(raw, '--index');
 }

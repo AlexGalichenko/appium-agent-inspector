@@ -84,6 +84,42 @@ describe('AppiumCapabilitiesSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // Appium itself matches these names case-insensitively.
+  it('accepts names in any case and normalises them', () => {
+    const result = AppiumCapabilitiesSchema.safeParse({
+      platformName: 'android',
+      'appium:automationName': 'UIAutomator2',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.platformName).toBe('Android');
+      expect(result.data['appium:automationName']).toBe('UiAutomator2');
+    }
+  });
+
+  it('accepts automation names of third-party drivers as given', () => {
+    const result = AppiumCapabilitiesSchema.safeParse({
+      ...validIosCaps,
+      'appium:automationName': 'Roku',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data['appium:automationName']).toBe('Roku');
+    }
+  });
+
+  it('still requires an automation name', () => {
+    expect(
+      AppiumCapabilitiesSchema.safeParse({
+        platformName: 'iOS',
+        'appium:automationName': '',
+      }).success,
+    ).toBe(false);
+    expect(AppiumCapabilitiesSchema.safeParse({ platformName: 'iOS' }).success).toBe(
+      false,
+    );
+  });
 });
 
 describe('AppiumServerConfigSchema', () => {

@@ -9,7 +9,7 @@ Control iOS and Android apps through the persistent appium-agent daemon. The dae
 
 ## How the daemon works
 
-The daemon runs at `127.0.0.1:47321`. Always check it is running before issuing any action command. If it is not running, start it first.
+The daemon runs on `127.0.0.1:47321`, or the next free port if that one is busy; the CLI finds it automatically. Always check it is running before issuing any action command. If it is not running, start it first.
 
 All CLI commands run from the project root via:
 ```
@@ -35,7 +35,9 @@ line, so you can branch on failure without parsing prose.
 npx appium-agent daemon:start
 ```
 
-`daemon:start` is a no-op if the daemon is already running — safe to call every time.
+`daemon:start` is a no-op if the daemon is already running — safe to call every time,
+even from several commands at once (concurrent starts wait for each other rather than
+spawning a second daemon).
 
 ### 2. Start the app (create a session)
 
@@ -61,6 +63,10 @@ npx appium-agent connect --caps '{
 ```
 
 Optional server flags: `--server-host`, `--server-port` (default `localhost:4723`), `--server-path`.
+
+Run `connect` once and wait for it to finish — creating a session can take a minute.
+A second `connect` while the first is still starting fails with `SESSION_ALREADY_ACTIVE`.
+A relative `appium:app` path is resolved against the directory you run the command in.
 
 ### 3. Get page source to discover locators
 
@@ -121,6 +127,10 @@ npx appium-agent click --strategy "class name" --selector "XCUIElementTypeCell" 
 | `-ios predicate string` | `label == "Login"` |
 | `-ios class chain` | `**/XCUIElementTypeButton[\`label == "Login"\`]` |
 | `-android uiautomator` | `text("Login")` |
+| `css selector` | `button.primary` (web views only, after `context --switch`) |
+
+Selectors for `xpath`, `class name`, `css selector`, `-ios predicate string`, and
+`-ios class chain` must be on a single line; a line break fails with `VALIDATION_ERROR`.
 
 ### 5. Interact with the app
 
@@ -134,15 +144,20 @@ npx appium-agent click --strategy "accessibility id" --selector "Login"
 ```
 
 **Type text:**
+
+`type` **appends** to whatever the field already holds. Pass `--clear` to replace the
+contents — do this for any field that may be pre-filled (edit forms, remembered
+usernames, search boxes with previous queries).
+
 ```bash
-# Into a stored element reference
+# Append to the field's current text
 npx appium-agent type --element-id V1StGXR8_Z5jd --text "admin@example.com"
 
-# With --clear to clear the field first
+# Replace the field's contents
 npx appium-agent type --element-id V1StGXR8_Z5jd --text "admin" --clear
 
 # Or inline
-npx appium-agent type --strategy "id" --selector "username_field" --text "admin"
+npx appium-agent type --strategy "id" --selector "username_field" --text "admin" --clear
 ```
 
 **Get page source:**
@@ -224,8 +239,8 @@ npx appium-agent wait --strategy "accessibility id" --selector "Dashboard" --for
 ```
 
 Conditions: `displayed` (default), `existing`, `enabled`, `gone`. Use `gone` to wait
-for a spinner or modal to disappear. `--timeout <ms>` defaults to 10000. A wait that
-never succeeds fails with `WAIT_TIMEOUT` rather than hanging.
+for a spinner or modal to disappear. `--timeout <ms>` defaults to 10000 (maximum
+600000). A wait that never succeeds fails with `WAIT_TIMEOUT` rather than hanging.
 
 **Scroll:**
 
@@ -242,7 +257,8 @@ npx appium-agent scroll --direction down \
 # → Element in view after 3 swipe(s).
 ```
 
-`--percent <0-0.95>` controls how far each swipe travels (default 0.6). Direction is
+`--percent <0-0.95>` controls how far each swipe travels (default 0.6), and
+`--max-swipes` accepts 1–50 (default 10). Direction is
 the direction the *content* moves: `down` reveals content below, `left` reveals the
 previous page.
 
@@ -366,8 +382,8 @@ These commands operate on any app — they do **not** close the Appium session.
 # iOS (.ipa or .app)
 npx appium-agent install-app /path/to/MyApp.ipa
 
-# Android (.apk)
-npx appium-agent install-app /path/to/MyApp.apk
+# Android (.apk) — relative paths resolve against the current directory
+npx appium-agent install-app build/outputs/apk/debug/app-debug.apk
 ```
 
 **Bring an app to the foreground:**
@@ -395,6 +411,12 @@ npx appium-agent session-status
 Use this when you are unsure whether a session survived — it avoids a spurious
 `connect` that would fail with `SESSION_ALREADY_ACTIVE`.
 
+A session with **no commands for 30 minutes is closed automatically** to release the
+device (configurable via `APPIUM_AGENT_IDLE_TIMEOUT_MS`, `0` disables). The daemon also
+drops a session the Appium server no longer knows. Either way the next command fails
+with `SESSION_NOT_ACTIVE` — after a long pause, check `session-status` and `connect`
+again instead of retrying the failed command.
+
 ### 8. Close the session
 
 ```bash
@@ -413,7 +435,9 @@ npx appium-agent daemon:kill
 
 `find-element` returns a short ID (e.g. `V1StGXR8_Z5jd`). Passing `--element-id` to `click` or `type` is preferred over repeating the locator — it skips redundant element discovery for subsequent steps in the same view.
 
-References use **selector rehydration**: the daemon re-finds the element at action time using the stored strategy + selector (and its index, if the selector was ambiguous). If the view hierarchy has changed and the element is gone, you'll get a `STALE_ELEMENT` error with the original selector in the message. Re-run `find-element` to get a fresh reference.
+References use **selector rehydration**: the daemon re-finds the element at action time using the stored strategy + selector. If the view hierarchy has changed and the element is gone, you'll get a `STALE_ELEMENT` error with the original selector in the message. Re-run `find-element` to get a fresh reference.
+
+References from an ambiguous selector (`--index`, `--all`) also record the element's text. When a list scrolls or updates and the element moves, the daemon follows it to its new position; if it cannot tell which match is the right one (the text is gone, or several matches share it), you get `STALE_ELEMENT` instead of an action on the wrong row. Rows with identical or empty text cannot be told apart this way — prefer a selector that matches one element, such as one including the row's text.
 
 References are cleared automatically when the session ends or the device stops responding, so a `STALE_ELEMENT` or `ELEMENT_REF_NOT_FOUND` after a crash means "re-discover", not "retry".
 
@@ -422,11 +446,15 @@ References are cleared automatically when the session ends or the device stops r
 | Error code | Meaning | Fix |
 |---|---|---|
 | `DAEMON_NOT_RUNNING` | Daemon process not found | Run `daemon:start` |
-| `SESSION_NOT_ACTIVE` | No app session open | Run `connect` |
-| `SESSION_ALREADY_ACTIVE` | Session already open | Run `delete-session` first, or proceed |
+| `DAEMON_START_FAILED` | Daemon exited or never became healthy while starting | Read the log path in the message |
+| `DAEMON_START_LOCKED` | Another `daemon:start` is still running | Wait, then run `daemon:start` again |
+| `SESSION_NOT_ACTIVE` | No session — never opened, idle-closed, or dropped by Appium | Run `connect` |
+| `SESSION_ALREADY_ACTIVE` | Session already open, or still starting | Run `delete-session` first, or proceed; never `connect` in parallel |
 | `ELEMENT_NOT_FOUND` | Element not in current view | Check selector / scroll to reveal |
-| `STALE_ELEMENT` | Element was found before but is gone now | Re-run `find-element` |
-| `VALIDATION_ERROR` | Bad input (wrong caps format, empty selector) | Fix the argument |
+| `ELEMENT_NOT_INTERACTABLE` | Element exists but is hidden, disabled, or covered | `wait --for enabled`/`displayed`, dismiss the overlay, or scroll |
+| `INVALID_SELECTOR` | Driver rejected the selector syntax | Fix the selector for its strategy (quotes, brackets, backticks) |
+| `STALE_ELEMENT` | Element was found before but is gone or can no longer be identified | Re-run `find-element` |
+| `VALIDATION_ERROR` | Bad input (wrong caps format, empty or multi-line selector, out-of-range flag) | Fix the argument |
 | `WAIT_TIMEOUT` | `wait` condition never met | Re-read `page-source`; the screen may not be what you expect |
 | `CONTEXT_NOT_FOUND` | Requested webview does not exist | Run `context` to list what is available |
 | `ELEMENT_REF_NOT_FOUND` | Unknown element ID | Re-run `find-element` |
@@ -476,5 +504,6 @@ npx appium-agent delete-session
 - `scroll --to-selector` rather than repeated blind swipes.
 - `--bounds` when you plan to tap coordinates; it saves a `get-location` call.
 - Reuse `--element-id` for repeated actions on the same element in one view.
+- Pass `--clear` to `type` unless you deliberately want to append.
 - The tree already omits off-screen elements, so if something is missing, scroll —
   do not fall back to `--raw` unless you need an attribute the tree does not show.

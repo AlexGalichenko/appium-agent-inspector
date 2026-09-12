@@ -18,11 +18,33 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org/
           cache: npm
+      # Publishing whatever version package.json holds under a mismatched tag
+      # produces a release that points at the wrong code, and npm versions can
+      # never be reused.
+      - name: Check release tag matches package version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::Release tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}."
+            exit 1
+          fi
       - run: npm ci
       - run: npm run lint
+      - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Check published package size
+        run: |
+          SIZE=$(npm pack --dry-run --json | node -e \
+            "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].unpackedSize))")
+          echo "Unpacked package size: $SIZE bytes"
+          if [ "$SIZE" -gt 2000000 ]; then
+            echo "::error::Package is ${SIZE} bytes unpacked (limit 2000000). Check for stray files under dist/."
+            npm pack --dry-run 2>&1 | sort -k2 -h -r | head -20
+            exit 1
+          fi
       # --provenance signs the package with the workflow's OIDC identity, which
       # the id-token permission above already grants.
       - run: npm publish --access public --provenance

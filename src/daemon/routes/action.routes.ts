@@ -34,10 +34,13 @@ export async function actionRoutes(
   fastify.post('/actions/type', async (request, reply) => {
     const body = parseBody(TypeRequestSchema, request.body);
     const element = await resolveElement(body, deps);
+    // wdio's setValue clears the field before typing, so it is exactly "replace
+    // the contents"; only addValue leaves existing text in place.
     if (body.clearFirst) {
-      await element.clearValue();
+      await element.setValue(body.text);
+    } else {
+      await element.addValue(body.text);
     }
-    await element.setValue(body.text);
     return reply.send({ ok: true, data: { message: 'Text entered' } });
   });
 
@@ -128,24 +131,28 @@ export async function actionRoutes(
     const { width, height } = await driver.getWindowSize();
     const swipe = swipeVector(body.direction, body.percent, width, height);
 
-    let swipes = 0;
-    let found: boolean | null = null;
-
     if (body.toElement === undefined) {
       await performSwipe(driver, swipe, body.duration);
-      swipes = 1;
-    } else {
-      const selector = toWdioSelector(body.toElement.strategy, body.toElement.selector);
-      found = await isInView(driver, selector);
+      const data: ScrollResponse = { direction: body.direction, swipes: 1, found: null };
+      return reply.send({ ok: true, data });
+    }
 
-      while (!found && swipes < body.maxSwipes) {
-        await performSwipe(driver, swipe, body.duration);
+    const selector = toWdioSelector(body.toElement.strategy, body.toElement.selector);
+    const { maxSwipes, duration } = body;
+
+    // Under the implicit wait, each check for a still-absent element would
+    // block for the full timeout before the next swipe.
+    const data = await sessionManager.withoutImplicitWait(async () => {
+      let swipes = 0;
+      let found = await isInView(driver, selector);
+      while (!found && swipes < maxSwipes) {
+        await performSwipe(driver, swipe, duration);
         swipes += 1;
         found = await isInView(driver, selector);
       }
-    }
+      return { direction: body.direction, swipes, found } satisfies ScrollResponse;
+    });
 
-    const data: ScrollResponse = { direction: body.direction, swipes, found };
     return reply.send({ ok: true, data });
   });
 
