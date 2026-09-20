@@ -1302,5 +1302,46 @@ describe('buildServer', () => {
       const res = await secured.inject({ method: 'GET', url: '/health' });
       expect(res.statusCode).toBe(200);
     });
+
+    // The comparison is constant-time, and timingSafeEqual throws outright on
+    // a length mismatch, so the odd shapes below must be rejected rather than
+    // crash the hook into a 500.
+    it('rejects a token shorter than the real one', async () => {
+      const res = await secured.inject({
+        method: 'GET',
+        url: '/session',
+        headers: { 'x-appium-agent-token': 's3c' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(JSON.parse(res.body).error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('rejects a token longer than the real one', async () => {
+      const res = await secured.inject({
+        method: 'GET',
+        url: '/session',
+        headers: { 'x-appium-agent-token': 's3cret-and-then-some' },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('rejects an empty token', async () => {
+      const res = await secured.inject({
+        method: 'GET',
+        url: '/session',
+        headers: { 'x-appium-agent-token': '' },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('rejects a repeated header, which arrives as an array', async () => {
+      const res = await secured.inject({
+        method: 'GET',
+        url: '/session',
+        headers: { 'x-appium-agent-token': ['s3cret', 's3cret'] },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(JSON.parse(res.body).error.code).toBe('UNAUTHORIZED');
+    });
   });
 });

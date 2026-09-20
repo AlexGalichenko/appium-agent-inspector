@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.5.0]
+
+### Changed
+
+- **`page-source` summarises repeated list rows.** A run of three or more structurally identical siblings now renders the first in full, followed by one line per remaining sibling carrying only the tokens that differ from it. A 25-row Android list went from ~2,050 to ~630 tokens. `[n]` counts position _within the run_ and is not a `find-element --index`; the run header says so, and unchanged tokens are marked `=` so every value still lines up with the example above it. Pass `--no-collapse` for the literal hierarchy.
+- **Anonymous, stateless containers collapse whatever their child count.** Only single-child wrappers used to be transparent, so a layout node with four children — carrying no name, id or state, and targetable by nothing — kept its line and an indent level for its whole subtree.
+- **`--bounds` is terser and limited to tap targets.** Coordinates render as `@centreX,centreY WidthxHeight` rather than `at=…, size=…`, and only on nodes that are `clickable` or are leaves (which is how every iOS control renders). Annotating full-screen layout containers buried the real targets.
+- **`--json` drops its indentation when stdout is not a terminal.** Pretty-printing is for a human reading a terminal; piped output goes to a program or an agent, which pays for every space. A 12-element `list-elements` payload went from ~780 to ~590 tokens. Interactive output is unchanged.
+- **`find-element` prints just `ID: <id>`** plus the ambiguity note, instead of also echoing back the strategy and selector that were passed in and a timestamp nothing acts on. `--json` still carries the full record.
+- **The bundled Claude skill is split into a core file and on-demand reference pages.** `SKILL.md` went from ~5,730 to ~2,810 tokens by moving gestures and coordinates, `mobile:` commands, screenshots and video, web-view contexts, app install/activate/terminate, and the full error-code table into `references/`, which agents read only when the task calls for them. The core keeps everything needed to make a correct first call. `install --skill` now copies the whole skill directory — a file-only copy would install dead links. Re-run `appium-agent install --skill --force` to update an installed copy.
+- The skill no longer recommends `find-element` before a one-off `click` or `type`: passing the locator inline does the same work in one round trip. References still pay off when the same element is acted on more than once.
+- Published-package contents come from a `files` allowlist in `package.json` rather than `.npmignore`, `build` cleans `dist` first, and `prepublishOnly` rebuilds from clean.
+- CI runs `test:coverage` instead of `test`, and `vitest.config.ts` enforces coverage thresholds set just under the current numbers — a floor against regressions, not a target.
+
+### Added
+
+- **`list-elements`** — list the element references the daemon is holding, or inspect one with `--id`, without re-running `find-element`.
+- **`page-source --no-collapse`** — list every repeated sibling in full, for when the literal hierarchy matters.
+
+### Fixed
+
+- **The daemon token was compared with `!==`**, which returns as soon as two bytes differ and leaks the token's contents through timing. Comparison is now `timingSafeEqual`, with lengths checked first (a token's length is not a secret).
+
 ## [0.4.0]
 
 ### Fixed

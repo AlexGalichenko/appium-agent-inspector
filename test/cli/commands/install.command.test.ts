@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { registerInstall } from '../../../src/cli/commands/install.command.js';
 import { ValidationError } from '../../../src/shared/errors.js';
 
@@ -13,14 +13,30 @@ vi.mock('node:fs/promises', () => ({
   cp: vi.fn(),
 }));
 
+/**
+ * The bundled skill and the install target share a filename, and when the
+ * command runs from the repo root they resolve to the same path. Pointing cwd
+ * somewhere else keeps "source exists" and "target exists" independent.
+ */
+const CWD = join(sep, 'tmp', 'some-project');
+const TARGET_DIR = join(CWD, '.claude', 'skills', 'appium-agent');
+const TARGET_FILE = join(TARGET_DIR, 'SKILL.md');
+
 describe('install command', () => {
   let program: Command;
 
+  /** Makes the bundled skill readable and the target absent unless stated. */
+  async function mockPaths({ targetExists = false } = {}) {
+    const { existsSync } = await import('node:fs');
+    vi.mocked(existsSync).mockImplementation((path) =>
+      path === TARGET_FILE ? targetExists : true,
+    );
+  }
+
   beforeEach(async () => {
     vi.resetAllMocks();
-
-    const { existsSync } = await import('node:fs');
-    vi.mocked(existsSync).mockReturnValue(true);
+    vi.spyOn(process, 'cwd').mockReturnValue(CWD);
+    await mockPaths();
 
     const { mkdir, cp } = await import('node:fs/promises');
     vi.mocked(mkdir).mockResolvedValue(undefined);
@@ -63,10 +79,7 @@ describe('install command', () => {
     await program.parseAsync(['node', 'appium-agent', 'install', '--skill']);
 
     const { mkdir } = await import('node:fs/promises');
-    expect(mkdir).toHaveBeenCalledWith(
-      expect.stringContaining(join('.claude', 'skills', 'appium-agent')),
-      { recursive: true },
-    );
+    expect(mkdir).toHaveBeenCalledWith(TARGET_DIR, { recursive: true });
   });
 
   it('target directory is inside process.cwd()', async () => {
@@ -74,16 +87,18 @@ describe('install command', () => {
 
     const { mkdir } = await import('node:fs/promises');
     const [targetDir] = vi.mocked(mkdir).mock.calls[0] as [string, ...unknown[]];
-    expect(targetDir).toMatch(process.cwd());
+    expect(targetDir.startsWith(CWD)).toBe(true);
   });
 
-  it('copies the bundled SKILL.md to the target location', async () => {
+  it('copies the whole bundled skill directory, not just SKILL.md', async () => {
+    // SKILL.md links to references/, so a file-only copy installs dead links.
     await program.parseAsync(['node', 'appium-agent', 'install', '--skill']);
 
     const { cp } = await import('node:fs/promises');
     expect(cp).toHaveBeenCalledWith(
-      expect.stringContaining('SKILL.md'),
-      expect.stringContaining('SKILL.md'),
+      expect.stringContaining(join('.claude', 'skills', 'appium-agent')),
+      TARGET_DIR,
+      { recursive: true },
     );
   });
 
@@ -107,5 +122,55 @@ describe('install command', () => {
     expect(console.log).toHaveBeenCalledWith(
       expect.stringContaining(join('.claude', 'skills', 'appium-agent')),
     );
+  });
+
+  describe('overwrite protection', () => {
+    it('refuses to replace an existing SKILL.md', async () => {
+      await mockPaths({ targetExists: true });
+
+      await expect(
+        program.parseAsync(['node', 'appium-agent', 'install', '--skill']),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('names the file and the escape hatch when refusing', async () => {
+      await mockPaths({ targetExists: true });
+
+      await expect(
+        program.parseAsync(['node', 'appium-agent', 'install', '--skill']),
+      ).rejects.toThrow(/already exists.*--force/s);
+    });
+
+    it('leaves the existing file untouched when it refuses', async () => {
+      await mockPaths({ targetExists: true });
+
+      await program
+        .parseAsync(['node', 'appium-agent', 'install', '--skill'])
+        .catch(() => undefined);
+
+      const { cp, mkdir } = await import('node:fs/promises');
+      expect(cp).not.toHaveBeenCalled();
+      expect(mkdir).not.toHaveBeenCalled();
+    });
+
+    it('overwrites an existing SKILL.md when --force is given', async () => {
+      await mockPaths({ targetExists: true });
+
+      await program.parseAsync(['node', 'appium-agent', 'install', '--skill', '--force']);
+
+      const { cp } = await import('node:fs/promises');
+      expect(cp).toHaveBeenCalledWith(expect.anything(), TARGET_DIR, {
+        recursive: true,
+      });
+    });
+
+    it('still reports a missing bundled skill ahead of the overwrite check', async () => {
+      const { existsSync } = await import('node:fs');
+      vi.mocked(existsSync).mockReturnValue(false);
+
+      await expect(
+        program.parseAsync(['node', 'appium-agent', 'install', '--skill', '--force']),
+      ).rejects.toThrow(/skill file not found/i);
+    });
   });
 });

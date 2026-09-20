@@ -45,12 +45,10 @@ export function registerFindElement(program: Command): void {
         }
 
         const result = await client.findElement(req);
+        // Strategy and selector are echoes of the flags just passed in, and the
+        // timestamp is never acted on; --json still carries all of it.
         out.emit(result, () => {
-          console.log('Element found:');
-          console.log(`  ID: ${result.elementId}`);
-          console.log(`  Strategy: ${result.strategy}`);
-          console.log(`  Selector: ${result.selector}`);
-          console.log(`  Found at: ${result.foundAt}`);
+          console.log(`ID: ${result.elementId}`);
           if (result.matchCount > 1) {
             console.log(
               `  Note: selector matches ${result.matchCount} elements; stored index ${result.index}. Use --index or --all to reach the others.`,

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import Fastify, { LogController } from 'fastify';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AppiumAgentError, UnauthorizedError } from '../shared/errors.js';
@@ -27,6 +28,19 @@ function pathOf(url: string): string {
   return url.split('?')[0] ?? url;
 }
 
+/**
+ * Compares the presented token against the real one without leaking its
+ * contents through timing. `timingSafeEqual` throws on a length mismatch, so
+ * the lengths are compared first — a token's length is not a secret.
+ */
+function tokenMatches(presented: unknown, expected: string): boolean {
+  if (typeof presented !== 'string') return false;
+  const a = Buffer.from(presented, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 function sendError(reply: FastifyReply, error: AppiumAgentError) {
   return reply.status(error.httpStatus).send({
     ok: false,
@@ -49,7 +63,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   if (token !== undefined) {
     fastify.addHook('onRequest', async (request) => {
       if (PUBLIC_PATHS.has(pathOf(request.url))) return;
-      if (request.headers[DAEMON_TOKEN_HEADER] !== token) {
+      if (!tokenMatches(request.headers[DAEMON_TOKEN_HEADER], token)) {
         throw new UnauthorizedError();
       }
     });

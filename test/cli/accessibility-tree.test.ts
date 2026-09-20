@@ -104,8 +104,10 @@ describe('wrapper tags', () => {
   });
 
   it('strips hierarchy and starts from its child', () => {
+    // The framelayout below it is anonymous and stateless, so it flattens too
+    // and the first real element surfaces at the root.
     const result = toAccessibilityYaml(ANDROID_SIMPLE);
-    expect(result).toMatch(/^- framelayout/);
+    expect(result).toMatch(/^- button "Login"/);
     expect(result).not.toContain('hierarchy');
   });
 });
@@ -124,12 +126,11 @@ describe('iOS simple tree', () => {
 // ─── Android tree structure ───────────────────────────────────────────────────
 
 describe('Android simple tree', () => {
-  it('renders framelayout with children', () => {
+  it('flattens the anonymous framelayout and renders its children', () => {
     expect(toAccessibilityYaml(ANDROID_SIMPLE)).toBe(
       [
-        '- framelayout:',
-        '  - button "Login" [clickable, id="btn_login"]',
-        '  - checkbox "Remember me" [checked]',
+        '- button "Login" [clickable, id="btn_login"]',
+        '- checkbox "Remember me" [checked]',
       ].join('\n'),
     );
   });
@@ -286,16 +287,16 @@ describe('anonymous single-child collapse', () => {
     expect(toAccessibilityYaml(xml)).toBe('- button "Deep"');
   });
 
-  it('keeps anonymous container when it has multiple non-empty children', () => {
+  it('flattens an anonymous container that has several children', () => {
+    // It carries no name, id or state, so there is nothing to target it by and
+    // nothing lost by lifting its children into its place.
     const xml = `<AppiumAUT>
       <XCUIElementTypeOther enabled="true" visible="true" x="0" y="0" width="390" height="844">
         <XCUIElementTypeButton name="A" label="A" enabled="true" visible="true" x="0" y="0" width="80" height="44"/>
         <XCUIElementTypeButton name="B" label="B" enabled="true" visible="true" x="0" y="80" width="80" height="44"/>
       </XCUIElementTypeOther>
     </AppiumAUT>`;
-    expect(toAccessibilityYaml(xml)).toBe(
-      ['- other:', '  - button "A"', '  - button "B"'].join('\n'),
-    );
+    expect(toAccessibilityYaml(xml)).toBe(['- button "A"', '- button "B"'].join('\n'));
   });
 
   it('preserves the subtree structure when collapsing', () => {
@@ -445,27 +446,206 @@ describe('bounds option', () => {
     const xml =
       '<hierarchy><android.widget.Button content-desc="Tap" bounds="[10,20][110,70]"/></hierarchy>';
     const out = toAccessibilityYaml(xml, { bounds: true });
-    expect(out).toContain('at=60,45');
-    expect(out).toContain('size=100x50');
+    expect(out).toContain('@60,45 100x50');
   });
 
   it('emits centre point and size from iOS x/y/width/height', () => {
     const xml =
       '<hierarchy><XCUIElementTypeButton name="Tap" x="0" y="100" width="200" height="40"/></hierarchy>';
     const out = toAccessibilityYaml(xml, { bounds: true });
-    expect(out).toContain('at=100,120');
-    expect(out).toContain('size=200x40');
+    expect(out).toContain('@100,120 200x40');
   });
 
   it('omits coordinates unless asked for', () => {
     const xml =
       '<hierarchy><android.widget.Button content-desc="Tap" bounds="[10,20][110,70]"/></hierarchy>';
-    expect(toAccessibilityYaml(xml)).not.toContain('at=');
+    expect(toAccessibilityYaml(xml)).not.toContain('@');
   });
 
   it('skips zero-area elements', () => {
     const xml =
       '<hierarchy><android.widget.Button content-desc="Tap" bounds="[10,20][10,20]"/></hierarchy>';
-    expect(toAccessibilityYaml(xml, { bounds: true })).not.toContain('at=');
+    expect(toAccessibilityYaml(xml, { bounds: true })).not.toContain('@');
+  });
+});
+
+// ─── Repeated-sibling collapsing ──────────────────────────────────────────────
+
+/** A list of `count` rows that differ only in their title text. */
+function androidRows(count: number): string {
+  const rows = Array.from(
+    { length: count },
+    (_, i) =>
+      `<android.widget.FrameLayout class="android.widget.FrameLayout" resource-id="com.example:id/row" clickable="true" enabled="true" bounds="[0,${300 + i * 180}][1080,${470 + i * 180}]" displayed="true">` +
+      `<android.widget.TextView class="android.widget.TextView" text="Item ${i}" resource-id="com.example:id/title" enabled="true" bounds="[180,${315 + i * 180}][800,${370 + i * 180}]" displayed="true"/>` +
+      `<android.widget.Button class="android.widget.Button" text="Add" resource-id="com.example:id/add" clickable="true" enabled="true" bounds="[880,${340 + i * 180}][1040,${430 + i * 180}]" displayed="true"/>` +
+      `</android.widget.FrameLayout>`,
+  ).join('');
+  return `<hierarchy><androidx.recyclerview.widget.RecyclerView class="androidx.recyclerview.widget.RecyclerView" resource-id="com.example:id/list" scrollable="true" enabled="true" bounds="[0,280][1080,2400]" displayed="true">${rows}</androidx.recyclerview.widget.RecyclerView></hierarchy>`;
+}
+
+describe('repeated sibling collapsing', () => {
+  it('renders the first row in full and reduces the rest to their differences', () => {
+    expect(toAccessibilityYaml(androidRows(4))).toBe(
+      [
+        '- recyclerview [scrollable, id="list"]:',
+        '  - framelayout [clickable, id="row"]:',
+        '    - textview "Item 0" [id="title"]',
+        '    - button "Add" [clickable, id="add"]',
+        '  # +3 same-shape siblings; [n] is the sibling position, tokens align with the example above, "=" means unchanged:',
+        '  - [1] = "Item 1" = = =',
+        '  - [2] = "Item 2" = = =',
+        '  - [3] = "Item 3" = = =',
+      ].join('\n'),
+    );
+  });
+
+  it('leaves a run shorter than three siblings alone', () => {
+    const rendered = toAccessibilityYaml(androidRows(2));
+    expect(rendered).not.toContain('same-shape siblings');
+    expect(rendered).toContain('"Item 0"');
+    expect(rendered).toContain('"Item 1"');
+  });
+
+  it('lists every sibling in full when collapsing is turned off', () => {
+    const rendered = toAccessibilityYaml(androidRows(4), { collapse: false });
+    expect(rendered).not.toContain('same-shape siblings');
+    for (const i of [0, 1, 2, 3]) {
+      expect(rendered).toContain(`- textview "Item ${i}" [id="title"]`);
+    }
+  });
+
+  it('does not collapse single-line siblings, which a summary would not shorten', () => {
+    const cells = Array.from(
+      { length: 4 },
+      (_, i) =>
+        `<XCUIElementTypeCell name="Row ${i}" x="0" y="${i * 40}" width="390" height="40"/>`,
+    ).join('');
+    const xml = `<hierarchy><XCUIElementTypeTable name="List" x="0" y="0" width="390" height="844">${cells}</XCUIElementTypeTable></hierarchy>`;
+    const rendered = toAccessibilityYaml(xml);
+    expect(rendered).not.toContain('same-shape siblings');
+    expect(rendered).toContain('- cell "Row 3"');
+  });
+
+  it("keeps each sibling's coordinates distinguishable under --bounds", () => {
+    const rendered = toAccessibilityYaml(androidRows(4), { bounds: true });
+    // Row 1 sits 180px below row 0, so its own centre must survive the collapse.
+    expect(rendered).toContain('- framelayout [clickable, id="row", @540,385 1080x170]:');
+    expect(rendered).toContain('@540,565 1080x170');
+  });
+
+  it('marks a sibling that differs in nothing at all', () => {
+    const row =
+      '<android.widget.FrameLayout class="android.widget.FrameLayout" resource-id="com.example:id/row" enabled="true">' +
+      '<android.widget.TextView class="android.widget.TextView" text="Same" enabled="true"/>' +
+      '<android.widget.Button class="android.widget.Button" text="Go" enabled="true"/>' +
+      '</android.widget.FrameLayout>';
+    const xml = `<hierarchy><android.widget.LinearLayout class="android.widget.LinearLayout" resource-id="com.example:id/list" enabled="true">${row.repeat(3)}</android.widget.LinearLayout></hierarchy>`;
+    const rendered = toAccessibilityYaml(xml);
+    expect(rendered).toContain('- [1] = =');
+    expect(rendered).toContain('- [2] = =');
+  });
+
+  it('does not merge neighbouring runs that have different shapes', () => {
+    const cell = (i: number) =>
+      `<XCUIElementTypeCell name="A${i}" x="0" y="${i * 40}" width="390" height="40"><XCUIElementTypeStaticText name="T${i}" x="0" y="${i * 40}" width="100" height="40"/></XCUIElementTypeCell>`;
+    const other = (i: number) =>
+      `<XCUIElementTypeCell name="B${i}" x="0" y="${i * 40}" width="390" height="40"><XCUIElementTypeButton name="U${i}" x="0" y="${i * 40}" width="100" height="40"/></XCUIElementTypeCell>`;
+    const xml = `<hierarchy><XCUIElementTypeTable name="List" x="0" y="0" width="390" height="844">${cell(0)}${cell(1)}${cell(2)}${other(3)}${other(4)}${other(5)}</XCUIElementTypeTable></hierarchy>`;
+    const rendered = toAccessibilityYaml(xml);
+    expect(rendered).toContain('- statictext "T0"');
+    expect(rendered).toContain('- button "U3"');
+    expect(rendered.match(/same-shape siblings/g)).toHaveLength(2);
+  });
+});
+
+// ─── Tap-target bounds ────────────────────────────────────────────────────────
+
+describe('bounds are limited to tap targets', () => {
+  it('annotates a clickable container but not a plain layout one', () => {
+    const xml =
+      '<hierarchy><android.widget.LinearLayout class="android.widget.LinearLayout" resource-id="com.example:id/wrap" enabled="true" bounds="[0,0][1080,400]">' +
+      '<android.widget.FrameLayout class="android.widget.FrameLayout" resource-id="com.example:id/card" clickable="true" enabled="true" bounds="[0,0][1080,200]">' +
+      '<android.widget.TextView class="android.widget.TextView" text="Hi" enabled="true" bounds="[10,10][110,60]"/>' +
+      '</android.widget.FrameLayout></android.widget.LinearLayout>';
+    const rendered = toAccessibilityYaml(xml, { bounds: true });
+    // The wrapper has an id, so it survives — but it is not something to tap.
+    expect(rendered).toContain('- linearlayout [id="wrap"]:');
+    expect(rendered).toContain('[clickable, id="card", @540,100 1080x200]');
+    expect(rendered).toContain('- textview "Hi" [@60,35 100x50]');
+  });
+
+  it('annotates leaves, which is how every iOS control renders', () => {
+    const xml =
+      '<hierarchy><XCUIElementTypeCell name="Row" x="0" y="0" width="390" height="80">' +
+      '<XCUIElementTypeStaticText name="Label" x="10" y="10" width="100" height="20"/>' +
+      '</XCUIElementTypeCell></hierarchy>';
+    const rendered = toAccessibilityYaml(xml, { bounds: true });
+    expect(rendered).toBe(
+      ['- cell "Row":', '  - statictext "Label" [@60,20 100x20]'].join('\n'),
+    );
+  });
+});
+
+describe('malformed markup', () => {
+  it('ignores a stray closing tag that matches no open element', () => {
+    // Popping unconditionally would unwind the parent and reparent the second
+    // button at the root, losing the nesting the caller relies on.
+    const xml = `<hierarchy><XCUIElementTypeOther name="Panel"><XCUIElementTypeButton name="A"/></b><XCUIElementTypeButton name="B"/></XCUIElementTypeOther></hierarchy>`;
+    expect(toAccessibilityYaml(xml)).toBe(
+      ['- other "Panel":', '  - button "A"', '  - button "B"'].join('\n'),
+    );
+  });
+
+  it('unwinds to the matching ancestor when a closing tag is skipped', () => {
+    const xml = `<hierarchy><XCUIElementTypeOther name="Outer"><XCUIElementTypeOther name="Inner"><XCUIElementTypeButton name="A"/></XCUIElementTypeOther><XCUIElementTypeButton name="B"/></XCUIElementTypeOther></hierarchy>`;
+    expect(toAccessibilityYaml(xml)).toBe(
+      [
+        '- other "Outer":',
+        '  - other "Inner":',
+        '    - button "A"',
+        '  - button "B"',
+      ].join('\n'),
+    );
+  });
+});
+
+describe('bounds rendering', () => {
+  it('omits coordinates entirely without the bounds option', () => {
+    const xml = `<hierarchy><XCUIElementTypeButton name="A" x="0" y="0" width="10" height="10"/></hierarchy>`;
+    expect(toAccessibilityYaml(xml)).toBe('- button "A"');
+  });
+
+  it('renders the centre and size of an iOS rect', () => {
+    const xml = `<hierarchy><XCUIElementTypeButton name="A" x="10" y="20" width="100" height="40"/></hierarchy>`;
+    expect(toAccessibilityYaml(xml, { bounds: true })).toBe(
+      '- button "A" [@60,40 100x40]',
+    );
+  });
+
+  it('renders the centre and size of an Android bounds attribute', () => {
+    const xml = `<hierarchy><android.widget.Button class="android.widget.Button" text="A" bounds="[40,800][1040,960]"/></hierarchy>`;
+    expect(toAccessibilityYaml(xml, { bounds: true })).toBe(
+      '- button "A" [@540,880 1000x160]',
+    );
+  });
+
+  it('drops a zero-area rect rather than emitting a useless tap point', () => {
+    const xml = `<hierarchy><XCUIElementTypeButton name="A" x="5" y="5" width="0" height="0"/></hierarchy>`;
+    expect(toAccessibilityYaml(xml, { bounds: true })).toBe('- button "A"');
+  });
+
+  it('drops a rect with non-numeric coordinates instead of printing NaN', () => {
+    // A NaN width slips past the `<= 0` area check, so the guard has to reject
+    // the rect at parse time or the tree renders "@NaN,NaN".
+    const xml = `<hierarchy><XCUIElementTypeButton name="A" x="null" y="20" width="100" height="40"/></hierarchy>`;
+    const rendered = toAccessibilityYaml(xml, { bounds: true });
+    expect(rendered).not.toMatch(/NaN/);
+    expect(rendered).toBe('- button "A"');
+  });
+
+  it('drops a rect whose width is non-numeric', () => {
+    const xml = `<hierarchy><XCUIElementTypeButton name="A" x="0" y="0" width="auto" height="40"/></hierarchy>`;
+    expect(toAccessibilityYaml(xml, { bounds: true })).toBe('- button "A"');
   });
 });

@@ -11,6 +11,14 @@ export default defineConfig({
       // are exercised by the manual smoke test rather than unit tests.
       exclude: ['src/cli/index.ts', 'src/daemon/index.ts'],
       reporter: ['text', 'html'],
+      // A floor, not a target: set just under the current numbers so a real
+      // regression fails the build without every small refactor tripping it.
+      thresholds: {
+        statements: 90,
+        branches: 85,
+        functions: 88,
+        lines: 92,
+      },
     },
   },
 });

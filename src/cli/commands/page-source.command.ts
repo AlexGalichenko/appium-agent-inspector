@@ -11,12 +11,16 @@ export function registerPageSource(program: Command): void {
     .description('Get the current screen as a compact accessibility tree')
     .option('--raw', 'Print full raw XML instead of the accessibility tree', false)
     .option('--bounds', 'Include element centre coordinates and size', false)
-    .action(async (opts: { raw: boolean; bounds: boolean }) => {
+    .option('--no-collapse', 'List every repeated sibling in full')
+    .action(async (opts: { raw: boolean; bounds: boolean; collapse: boolean }) => {
       const client = await DaemonClient.fromDaemonState();
       const result = await client.getPageSource();
       const rendered = opts.raw
         ? result.source
-        : toAccessibilityYaml(result.source, { bounds: opts.bounds });
+        : toAccessibilityYaml(result.source, {
+            bounds: opts.bounds,
+            collapse: opts.collapse,
+          });
 
       out.emit({ capturedAt: result.capturedAt, tree: rendered }, () =>
         console.log(rendered),
