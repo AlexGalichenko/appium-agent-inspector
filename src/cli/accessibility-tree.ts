@@ -7,6 +7,12 @@ interface XmlNode {
 export interface TreeOptions {
   /** Include on-screen coordinates so callers can tap without a find-element round trip. */
   bounds?: boolean;
+  /**
+   * Collapse runs of structurally identical siblings (list rows) down to one
+   * full example plus a line of differences each. Defaults to on; callers that
+   * need the literal hierarchy can turn it off.
+   */
+  collapse?: boolean;
 }
 
 const ENTITIES: Record<string, string> = {
@@ -104,7 +110,15 @@ function parseXml(xml: string): XmlNode | null {
     i = close + 1;
 
     if (raw.startsWith('</')) {
-      stack.pop();
+      // Popping on any closing tag lets one stray `</b>` reparent every later
+      // sibling under the wrong node. Only unwind as far as a real match.
+      const closing = raw.slice(2, -1).trim();
+      for (let depth = stack.length - 1; depth >= 0; depth--) {
+        if (stack[depth]!.tag === closing) {
+          stack.length = depth;
+          break;
+        }
+      }
       continue;
     }
 
@@ -179,7 +193,15 @@ function getRect(
 
   const { x, y, width, height } = node.attrs;
   if (x !== undefined && y !== undefined && width !== undefined && height !== undefined) {
-    return { x: Number(x), y: Number(y), width: Number(width), height: Number(height) };
+    const rect = {
+      x: Number(x),
+      y: Number(y),
+      width: Number(width),
+      height: Number(height),
+    };
+    // A non-numeric attribute yields NaN, which slips past the `<= 0` size
+    // check in getBoundsParts and renders as "@NaN,NaN".
+    return Object.values(rect).every(Number.isFinite) ? rect : null;
   }
 
   return null;
@@ -221,6 +243,10 @@ function getStates(node: XmlNode, name: string | null): string[] {
  * Coordinates are rendered but deliberately excluded from `getStates`: they
  * apply to every node, so counting them as state would stop anonymous wrapper
  * nodes collapsing and bury the tree in layout containers.
+ *
+ * The `@cx,cy WxH` shorthand is deliberately terse — these repeat on every
+ * annotated node, so the long `at=…, size=…` spelling cost more in an agent's
+ * context than it bought in readability.
  */
 function getBoundsParts(node: XmlNode): string[] {
   const rect = getRect(node);
@@ -228,7 +254,82 @@ function getBoundsParts(node: XmlNode): string[] {
 
   const cx = Math.round(rect.x + rect.width / 2);
   const cy = Math.round(rect.y + rect.height / 2);
-  return [`at=${cx},${cy}`, `size=${rect.width}x${rect.height}`];
+  return [`@${cx},${cy} ${rect.width}x${rect.height}`];
+}
+
+/**
+ * The parts of a rendered line that vary between otherwise identical siblings:
+ * quoted text (names, labels, values, ids) and `--bounds` coordinates. Anything
+ * outside these is structure, and structure is what collapseRuns deduplicates.
+ */
+const VARIABLE_TOKEN = /"[^"]*"|@-?\d+,-?\d+ -?\d+x-?\d+/g;
+
+/** Two subtrees share a shape when they differ only in their variable tokens. */
+function shapeOf(lines: string[]): string {
+  return lines.join('\n').replace(VARIABLE_TOKEN, '\u0000');
+}
+
+function tokensOf(lines: string[]): string[] {
+  return lines.join('\n').match(VARIABLE_TOKEN) ?? [];
+}
+
+/** A run shorter than this is cheaper to print in full than to explain. */
+const MIN_RUN = 3;
+
+/** Stands in for a token a sibling shares with the example above it. */
+const SAME = '=';
+
+/**
+ * List rows dominate a real page source: twenty-five cells that differ only in
+ * their text still cost twenty-five copies of the same scaffolding. Render the
+ * first of a run in full and reduce the rest to the tokens that actually differ
+ * from it, which is the only part a caller can build a selector from.
+ *
+ * Single-line siblings are left alone — `- [1] "Item 1"` is no shorter than the
+ * `- cell "Item 1"` it would replace, and it reads worse.
+ */
+function collapseRuns(groups: string[][]): string[] {
+  const out: string[] = [];
+  let i = 0;
+
+  while (i < groups.length) {
+    const first = groups[i]!;
+    const shape = shapeOf(first);
+
+    let end = i + 1;
+    while (end < groups.length && shapeOf(groups[end]!) === shape) end++;
+    const run = end - i;
+
+    if (run < MIN_RUN || first.length < 2) {
+      for (let k = i; k < end; k++) out.push(...groups[k]!);
+      i = end;
+      continue;
+    }
+
+    const indent = /^\s*/.exec(first[0]!)![0];
+    const baseline = tokensOf(first);
+    out.push(...first);
+    // `[n]` counts siblings inside this run — it is not a `find-element --index`,
+    // which counts matches of one selector across the whole hierarchy.
+    out.push(
+      `${indent}# +${run - 1} same-shape siblings; [n] is the sibling position, ` +
+        `tokens align with the example above, "${SAME}" means unchanged:`,
+    );
+
+    for (let k = i + 1; k < end; k++) {
+      // Dropping unchanged tokens instead of marking them would leave the rest
+      // to be matched against the example by position — and a coordinate
+      // attributed to the wrong child is a tap on the wrong thing.
+      const detail = tokensOf(groups[k]!)
+        .map((tok, idx) => (tok === baseline[idx] ? SAME : tok))
+        .join(' ');
+      out.push(`${indent}- [${k - i}] ${detail}`);
+    }
+
+    i = end;
+  }
+
+  return out;
 }
 
 function renderNode(node: XmlNode, depth: number, options: TreeOptions): string[] {
@@ -243,25 +344,37 @@ function renderNode(node: XmlNode, depth: number, options: TreeOptions): string[
 
   const renderedChildren = node.children.map((c) => renderNode(c, depth + 1, options));
   const nonEmptyChildren = renderedChildren.filter((lines) => lines.length > 0);
+  const childLines =
+    options.collapse === false ? nonEmptyChildren.flat() : collapseRuns(nonEmptyChildren);
 
-  // Anonymous leaf → drop entirely
-  if (!name && states.length === 0 && nonEmptyChildren.length === 0) return [];
-
-  // Anonymous single-child container → transparent passthrough (shift child up one level)
-  if (!name && states.length === 0 && nonEmptyChildren.length === 1) {
-    return nonEmptyChildren[0]!.map((line) => line.slice(2));
+  // An anonymous, stateless node carries nothing a selector could target, so it
+  // is a transparent passthrough whatever its child count: its children shift up
+  // one level and it disappears. With no children left that prunes it entirely.
+  if (!name && states.length === 0) {
+    return childLines.map((line) => line.slice(2));
   }
 
   const role = getRole(node);
-  const childLines = nonEmptyChildren.flat();
   const namePart = name ? ` "${name}"` : '';
   const annotations =
-    options.bounds === true ? [...states, ...getBoundsParts(node)] : states;
+    options.bounds === true && isTapTarget(node, nonEmptyChildren.length)
+      ? [...states, ...getBoundsParts(node)]
+      : states;
   const statePart = annotations.length ? ` [${annotations.join(', ')}]` : '';
   const colon = childLines.length > 0 ? ':' : '';
   const prefix = '  '.repeat(depth) + '- ';
 
   return [`${prefix}${role}${namePart}${statePart}${colon}`, ...childLines];
+}
+
+/**
+ * Coordinates only help on something you would actually tap. Layout containers
+ * wrapping half the screen have a centre point too, and annotating them buried
+ * the real targets — so a node earns bounds by being explicitly clickable or by
+ * being a leaf, which is what every iOS control renders as.
+ */
+function isTapTarget(node: XmlNode, childCount: number): boolean {
+  return node.attrs['clickable'] === 'true' || childCount === 0;
 }
 
 export function toAccessibilityYaml(xml: string, options: TreeOptions = {}): string {

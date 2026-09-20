@@ -53,7 +53,7 @@ npx appium-agent connect --caps '{
 # 3. Interact with the app
 npx appium-agent page-source                       # compact accessibility tree
 npx appium-agent find-element --strategy "accessibility id" --selector "Login"
-# → Element found: ID=V1StGXR8_Z5jd
+# → ID: V1StGXR8_Z5jd
 
 npx appium-agent click --element-id V1StGXR8_Z5jd
 npx appium-agent type --selector "Username" --strategy "accessibility id" --text "admin" --clear
@@ -78,7 +78,7 @@ npx appium-agent daemon:kill
 npx appium-agent install --skill
 ```
 
-This copies `.claude/skills/appium-agent/SKILL.md` into the current working directory, making the skill available to Claude Code and compatible AI agents in that project.
+This copies `.claude/skills/appium-agent/` — `SKILL.md` and its `references/` pages — into the current working directory, making the skill available to Claude Code and compatible AI agents in that project.
 
 ## CLI reference
 
@@ -86,7 +86,7 @@ This copies `.claude/skills/appium-agent/SKILL.md` into the current working dire
 
 | Command | Options | Description |
 |---|---|---|
-| `install` | `--skill` | Install the bundled Claude skill into `.claude/skills/appium-agent/` in the current project. |
+| `install` | `--skill` · `--force` | Install the bundled Claude skill and its reference pages into `.claude/skills/appium-agent/` in the current project. Refuses to replace an existing `SKILL.md` unless `--force` is given, so local edits are not lost. |
 
 ### Daemon lifecycle
 
@@ -111,6 +111,7 @@ This copies `.claude/skills/appium-agent/SKILL.md` into the current working dire
 |---|---|---|
 | `find-element` | `--strategy <strategy>` · `--selector <value>` · `--index <n>` · `--all` | Find an element and store a reusable reference. Prints the element ID, and warns when the selector is ambiguous. `--index` picks a specific match; `--all` stores a reference for every match. |
 | `wait` | `--strategy` · `--selector` · `--for <condition>` · `--timeout <ms>` | Block until an element is `displayed` (default), `existing`, `enabled`, or `gone`. Fails with `WAIT_TIMEOUT` rather than hanging. |
+| `list-elements` | `--id <id>` | List every stored element reference, or inspect one with `--id`. A `fingerprint` on a reference means it is positional and can go stale as a list scrolls. |
 
 Supported locator strategies: `accessibility id`, `id`, `xpath`, `class name`, `-android uiautomator`, `-ios predicate string`, `-ios class chain`, `css selector`. Selectors for `xpath`, `class name`, `css selector`, and the two `-ios` strategies must fit on one line.
 
@@ -122,7 +123,7 @@ Supported locator strategies: `accessibility id`, `id`, `xpath`, `class name`, `
 | `type` | `--text <text>` · `--element-id <id>` **or** `--strategy` + `--selector` · `--clear` | Type text, appending to what the field already holds. Pass `--clear` to replace the contents instead. |
 | `get-text` | `--element-id <id>` **or** `--strategy` + `--selector` | Read an element's visible text. |
 | `scroll` | `--direction <dir>` · `--percent <n>` · `--to-strategy` + `--to-selector` · `--max-swipes <n>` | Scroll `up`/`down`/`left`/`right`. With a target it swipes repeatedly until that element is genuinely on screen, or `--max-swipes` is reached. |
-| `page-source` | `--raw` · `--bounds` | Print the accessibility tree (default). `--bounds` adds each element's centre point and size so you can tap by coordinate. `--raw` prints the full XML. |
+| `page-source` | `--raw` · `--bounds` · `--no-collapse` | Print the accessibility tree (default). Runs of identical list rows are summarised to one full example plus a line of differences each; `--no-collapse` lists them all. `--bounds` annotates tap targets with `@centreX,centreY WidthxHeight`. `--raw` prints the full XML. |
 | `take-screenshot` | `--output <path>` · `--base64` | Capture the device screen. Saves a PNG and prints its path; `--base64` prints raw base64 to stdout instead. |
 | `video-start` | — | Start video recording of the device screen. |
 | `video-stop [output]` | `--base64` | Stop video recording. Saves an MP4 and prints its path; `--base64` prints raw base64 instead. |

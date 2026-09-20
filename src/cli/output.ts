@@ -15,7 +15,14 @@ export function makeOutput(program: Command): Output {
     isJson,
     emit(data, human) {
       if (isJson()) {
-        console.log(JSON.stringify(data, null, 2));
+        // Indentation is for a human skimming a terminal. When stdout is a pipe
+        // the only reader is a program or an agent, and every space it adds is
+        // context an agent pays for.
+        console.log(
+          process.stdout.isTTY === true
+            ? JSON.stringify(data, null, 2)
+            : JSON.stringify(data),
+        );
       } else {
         human();
       }

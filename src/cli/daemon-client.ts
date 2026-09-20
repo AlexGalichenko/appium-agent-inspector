@@ -182,6 +182,10 @@ export class DaemonClient {
     return this.request<{ elements: ElementReference[] }>('GET', '/elements');
   }
 
+  async getElement(id: string): Promise<ElementReference> {
+    return this.request<ElementReference>('GET', `/elements/${encodeURIComponent(id)}`);
+  }
+
   // --- actions ------------------------------------------------------------
 
   async click(req: ClickRequest): Promise<void> {

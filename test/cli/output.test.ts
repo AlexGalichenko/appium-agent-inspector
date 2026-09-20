@@ -2,6 +2,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { makeOutput } from '../../src/cli/output.js';
 
+/**
+ * `isTTY` is absent rather than false on a non-tty stdout, so there is no getter
+ * to spy on — it has to be set and put back.
+ */
+function withTty<T>(value: boolean, fn: () => T): T {
+  const original = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+  Object.defineProperty(process.stdout, 'isTTY', { value, configurable: true });
+  try {
+    return fn();
+  } finally {
+    if (original === undefined) {
+      delete (process.stdout as { isTTY?: boolean }).isTTY;
+    } else {
+      Object.defineProperty(process.stdout, 'isTTY', original);
+    }
+  }
+}
+
 function programWith(json: boolean): Command {
   const program = new Command();
   program.option('--json', 'json output', false);
@@ -32,6 +50,22 @@ describe('makeOutput', () => {
 
     expect(human).not.toHaveBeenCalled();
     expect(JSON.parse(log.mock.calls[0]![0] as string)).toEqual({ clicked: true });
+  });
+
+  it('indents JSON when a human is watching a terminal', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    withTty(true, () => makeOutput(programWith(true)).emit({ clicked: true }, vi.fn()));
+
+    expect(log.mock.calls[0]![0]).toBe('{\n  "clicked": true\n}');
+  });
+
+  it('drops the indentation when stdout is piped', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    withTty(false, () => makeOutput(programWith(true)).emit({ clicked: true }, vi.fn()));
+
+    expect(log.mock.calls[0]![0]).toBe('{"clicked":true}');
   });
 
   it('reports which mode is active', () => {
