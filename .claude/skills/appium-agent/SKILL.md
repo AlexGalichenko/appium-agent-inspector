@@ -46,8 +46,10 @@ npx appium-agent connect --caps '{
 }'
 ```
 
-Optional server flags: `--server-host`, `--server-port` (default `localhost:4723`),
-`--server-path`. A relative `appium:app` path resolves against the current directory.
+Optional server flags: `--server-protocol` (`http` or `https`, default `http`),
+`--server-host`, `--server-port` (default `localhost:4723`, or port 443 for `https`),
+`--server-path`. For a cloud or TLS endpoint pass the scheme via `--server-protocol`,
+not in `--server-host`. A relative `appium:app` path resolves against the current directory.
 
 Run `connect` once and wait for it — creating a session can take a minute. A second
 `connect` while the first is starting fails with `SESSION_ALREADY_ACTIVE`.

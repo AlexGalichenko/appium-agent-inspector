@@ -99,7 +99,7 @@ This copies `.claude/skills/appium-agent/` — `SKILL.md` and its `references/` 
 
 | Command | Options | Description |
 |---|---|---|
-| `connect` | `--caps <json\|path>` · `--server-host` · `--server-port` · `--server-path` | Create an Appium session. `--caps` accepts an inline JSON object **or** a path to a `.json` file. |
+| `connect` | `--caps <json\|path>` · `--server-protocol` · `--server-host` · `--server-port` · `--server-path` | Create an Appium session. `--caps` accepts an inline JSON object **or** a path to a `.json` file. |
 | `delete-session` | — | Close the Appium session and clear all element references. A session with no requests for 30 minutes is closed automatically (see `APPIUM_AGENT_IDLE_TIMEOUT_MS`). |
 | `session-status` | — | Report whether a session is active, with its ID and start time. |
 | `device-info` | — | Screen size, orientation, platform, and current context. Use the screen size to compute gesture coordinates. |

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.1]
+
+### Fixed
+
+- **`connect` could not reach an HTTPS Appium server.** The protocol was never passed to webdriverio, which dials plain `http` by default, so cloud grids and TLS-fronted Appium servers were unreachable. A URL passed to `--server-host` (`https://…`) was sent as a bare hostname and failed with a DNS error; it is now rejected before connecting, with a pointer to `--server-protocol`.
+
+### Added
+
+- **`connect --server-protocol <http|https>`** (default `http`). When `--server-port` is omitted it now defaults to match the protocol: `4723` for `http`, `443` for `https`. Existing invocations are unchanged.
+
 ## [0.5.0]
 
 ### Changed

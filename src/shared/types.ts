@@ -3,6 +3,8 @@ import {
   APPIUM_DEFAULT_HOST,
   APPIUM_DEFAULT_PATH,
   APPIUM_DEFAULT_PORT,
+  APPIUM_DEFAULT_PROTOCOL,
+  APPIUM_PROTOCOLS,
   DEFAULT_SCROLL_DURATION_MS,
   DEFAULT_SCROLL_MAX_SWIPES,
   DEFAULT_WAIT_TIMEOUT_MS,
@@ -81,6 +83,7 @@ export type AppiumCapabilities = z.infer<typeof AppiumCapabilitiesSchema>;
 // ---------------------------------------------------------------------------
 
 export const AppiumServerConfigSchema = z.object({
+  protocol: z.enum(APPIUM_PROTOCOLS).default(APPIUM_DEFAULT_PROTOCOL),
   hostname: z.string().default(APPIUM_DEFAULT_HOST),
   port: z.number().int().positive().default(APPIUM_DEFAULT_PORT),
   path: z.string().default(APPIUM_DEFAULT_PATH),

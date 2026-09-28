@@ -35,10 +35,73 @@ describe('connect', () => {
   it('defaults to the local Appium server', async () => {
     await runCommand(registerConnect, ['connect', '--caps', CAPS]);
     expect(firstArg(startSession).server).toEqual({
+      protocol: 'http',
       hostname: 'localhost',
       port: 4723,
       path: '/',
     });
+  });
+
+  it('connects to an https server on port 443 by default', async () => {
+    await runCommand(registerConnect, [
+      'connect',
+      '--caps',
+      CAPS,
+      '--server-protocol',
+      'https',
+      '--server-host',
+      'hub.example.com',
+      '--server-path',
+      '/wd/hub',
+    ]);
+    expect(firstArg(startSession).server).toEqual({
+      protocol: 'https',
+      hostname: 'hub.example.com',
+      port: 443,
+      path: '/wd/hub',
+    });
+  });
+
+  it('keeps an explicit port for an https server', async () => {
+    await runCommand(registerConnect, [
+      'connect',
+      '--caps',
+      CAPS,
+      '--server-protocol',
+      'https',
+      '--server-port',
+      '8443',
+    ]);
+    expect(firstArg(startSession).server).toMatchObject({
+      protocol: 'https',
+      port: 8443,
+    });
+  });
+
+  it('rejects an unknown --server-protocol before connecting', async () => {
+    await expect(
+      runCommand(registerConnect, [
+        'connect',
+        '--caps',
+        CAPS,
+        '--server-protocol',
+        'ftp',
+      ]),
+    ).rejects.toThrow(/Valid protocols: http, https/);
+    expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects a URL passed as --server-host before connecting', async () => {
+    await expect(
+      runCommand(registerConnect, [
+        'connect',
+        '--caps',
+        CAPS,
+        '--server-host',
+        'https://hub.example.com',
+      ]),
+    ).rejects.toThrow(/--server-protocol/);
+    expect(startSession).not.toHaveBeenCalled();
   });
 
   it('overrides the server from flags', async () => {
@@ -54,6 +117,7 @@ describe('connect', () => {
       '/wd/hub',
     ]);
     expect(firstArg(startSession).server).toEqual({
+      protocol: 'http',
       hostname: 'grid.internal',
       port: 4444,
       path: '/wd/hub',

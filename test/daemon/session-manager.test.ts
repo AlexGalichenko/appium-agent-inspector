@@ -109,6 +109,29 @@ describe('SessionManager', () => {
         expect.objectContaining({ hostname: '192.168.1.1', port: 4724 }),
       );
     });
+
+    it('defaults to http on the Appium port', async () => {
+      const { remote } = await import('webdriverio');
+      await manager.startSession(validRequest);
+      expect(remote).toHaveBeenCalledWith(
+        expect.objectContaining({ protocol: 'http', port: 4723 }),
+      );
+    });
+
+    it('passes https through to webdriverio and defaults the port to 443', async () => {
+      const { remote } = await import('webdriverio');
+      await manager.startSession({
+        ...validRequest,
+        server: { protocol: 'https', hostname: 'hub.example.com' },
+      });
+      expect(remote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          protocol: 'https',
+          hostname: 'hub.example.com',
+          port: 443,
+        }),
+      );
+    });
   });
 
   // ── endSession ────────────────────────────────────────────────────────────
