@@ -60,8 +60,18 @@ export const DAEMON_START_LOCK_FILE = join(CONFIG_DIR, 'daemon-start.lock');
 
 export const DAEMON_TOKEN_HEADER = 'x-appium-agent-token';
 
+export const APPIUM_PROTOCOLS = ['http', 'https'] as const;
+export type AppiumProtocol = (typeof APPIUM_PROTOCOLS)[number];
+
+export const APPIUM_DEFAULT_PROTOCOL: AppiumProtocol = 'http';
 export const APPIUM_DEFAULT_HOST = 'localhost';
 export const APPIUM_DEFAULT_PORT = 4723;
+export const APPIUM_DEFAULT_HTTPS_PORT = 443;
+
+/** Appium's own port for plain HTTP; the standard TLS port for HTTPS endpoints. */
+export function defaultAppiumPort(protocol: AppiumProtocol): number {
+  return protocol === 'https' ? APPIUM_DEFAULT_HTTPS_PORT : APPIUM_DEFAULT_PORT;
+}
 export const APPIUM_DEFAULT_PATH = '/';
 
 export const DEFAULT_IMPLICIT_TIMEOUT_MS = 5000;

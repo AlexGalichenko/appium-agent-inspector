@@ -3,13 +3,15 @@ import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
 import { makeOutput } from '../output.js';
-import { parseInteger } from '../parse.js';
+import { parseChoice, parseInteger } from '../parse.js';
 import { resolveLocalPath } from '../paths.js';
 import { ValidationError } from '../../shared/errors.js';
 import {
   APPIUM_DEFAULT_HOST,
   APPIUM_DEFAULT_PATH,
-  APPIUM_DEFAULT_PORT,
+  APPIUM_DEFAULT_PROTOCOL,
+  APPIUM_PROTOCOLS,
+  defaultAppiumPort,
 } from '../../shared/constants.js';
 import type { AppiumCapabilities } from '../../shared/types.js';
 import { AppiumCapabilitiesSchema } from '../../shared/types.js';
@@ -24,14 +26,23 @@ export function registerConnect(program: Command): void {
       '--caps <json>',
       'Appium capabilities: a JSON string or a path to a JSON file',
     )
+    .option(
+      '--server-protocol <protocol>',
+      `Appium server protocol (${APPIUM_PROTOCOLS.join(', ')})`,
+      APPIUM_DEFAULT_PROTOCOL,
+    )
     .option('--server-host <host>', 'Appium server hostname', APPIUM_DEFAULT_HOST)
-    .option('--server-port <port>', 'Appium server port', String(APPIUM_DEFAULT_PORT))
+    .option(
+      '--server-port <port>',
+      'Appium server port (default: 4723 for http, 443 for https)',
+    )
     .option('--server-path <path>', 'Appium server base path', APPIUM_DEFAULT_PATH)
     .action(
       async (opts: {
         caps: string;
+        serverProtocol: string;
         serverHost: string;
-        serverPort: string;
+        serverPort?: string;
         serverPath: string;
       }) => {
         const parsed = AppiumCapabilitiesSchema.safeParse(parseCaps(opts.caps));
@@ -41,9 +52,27 @@ export function registerConnect(program: Command): void {
           );
         }
 
+        const protocol = parseChoice(
+          APPIUM_PROTOCOLS,
+          opts.serverProtocol,
+          'server protocol',
+          'protocols',
+        );
+        // A URL here would be sent to webdriverio as a bare hostname and fail
+        // with an unhelpful DNS error, so point at the flag that sets the scheme.
+        if (opts.serverHost.includes('://')) {
+          throw new ValidationError(
+            `--server-host takes a hostname, not a URL: "${opts.serverHost}". ` +
+              'Set the scheme with --server-protocol and the path with --server-path.',
+          );
+        }
         const server = {
+          protocol,
           hostname: opts.serverHost,
-          port: parseInteger(opts.serverPort, '--server-port', { min: 1, max: 65535 }),
+          port:
+            opts.serverPort === undefined
+              ? defaultAppiumPort(protocol)
+              : parseInteger(opts.serverPort, '--server-port', { min: 1, max: 65535 }),
           path: opts.serverPath,
         };
 

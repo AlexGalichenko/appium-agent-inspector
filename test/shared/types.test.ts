@@ -127,6 +127,7 @@ describe('AppiumServerConfigSchema', () => {
     const result = AppiumServerConfigSchema.safeParse({});
     expect(result.success).toBe(true);
     if (result.success) {
+      expect(result.data.protocol).toBe('http');
       expect(result.data.hostname).toBe('localhost');
       expect(result.data.port).toBe(4723);
       expect(result.data.path).toBe('/');
@@ -144,6 +145,10 @@ describe('AppiumServerConfigSchema', () => {
       expect(result.data.hostname).toBe('192.168.1.1');
       expect(result.data.port).toBe(4724);
     }
+  });
+
+  it('rejects an unknown protocol', () => {
+    expect(AppiumServerConfigSchema.safeParse({ protocol: 'ftp' }).success).toBe(false);
   });
 
   it('rejects a non-integer port', () => {

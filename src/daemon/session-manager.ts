@@ -13,7 +13,8 @@ import type {
 import {
   APPIUM_DEFAULT_HOST,
   APPIUM_DEFAULT_PATH,
-  APPIUM_DEFAULT_PORT,
+  APPIUM_DEFAULT_PROTOCOL,
+  defaultAppiumPort,
   DEFAULT_IMPLICIT_TIMEOUT_MS,
 } from '../shared/constants.js';
 import type { Logger } from '../shared/logger.js';
@@ -159,16 +160,20 @@ export class SessionManager {
 
     try {
       const server = req.server ?? {};
+      // webdriverio dials plain http unless told otherwise, so an https
+      // endpoint (a cloud grid, a TLS-fronted Appium) needs this passed through.
+      const protocol = server.protocol ?? APPIUM_DEFAULT_PROTOCOL;
       const opts = {
+        protocol,
         hostname: server.hostname ?? APPIUM_DEFAULT_HOST,
-        port: server.port ?? APPIUM_DEFAULT_PORT,
+        port: server.port ?? defaultAppiumPort(protocol),
         path: server.path ?? APPIUM_DEFAULT_PATH,
         capabilities: req.capabilities as WebdriverIO.Capabilities,
         logLevel: 'error' as const,
       };
 
       this.logger.info(
-        { hostname: opts.hostname, port: opts.port },
+        { protocol: opts.protocol, hostname: opts.hostname, port: opts.port },
         'Starting Appium session',
       );
 
