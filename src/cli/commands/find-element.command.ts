@@ -29,12 +29,11 @@ export function registerFindElement(program: Command): void {
           strategy: parseStrategy(opts.strategy),
           selector: opts.selector,
           index: parseIndex(opts.index),
-          all: opts.all,
         };
         const client = await DaemonClient.fromDaemonState();
 
         if (opts.all) {
-          const result = await client.findElements(req);
+          const result = await client.findElement({ ...req, all: true });
           out.emit(result, () => {
             console.log(`${result.matchCount} element(s) found:`);
             for (const el of result.elements) {
@@ -44,7 +43,7 @@ export function registerFindElement(program: Command): void {
           return;
         }
 
-        const result = await client.findElement(req);
+        const result = await client.findElement({ ...req, all: false });
         // Strategy and selector are echoes of the flags just passed in, and the
         // timestamp is never acted on; --json still carries all of it.
         out.emit(result, () => {

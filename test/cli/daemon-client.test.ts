@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DaemonNotRunningError } from '../../src/shared/errors.js';
-import { DaemonClient, scrollTimeoutMs } from '../../src/cli/daemon-client.js';
+import { DaemonClient } from '../../src/cli/daemon-client.js';
+import { scrollTimeoutMs } from '../../src/shared/routes.js';
 
 vi.mock('../../src/shared/state-file.js', () => ({
   findRunningDaemon: vi.fn(),
@@ -221,7 +222,7 @@ describe('DaemonClient', () => {
       const client = DaemonClient.default();
       fetchMock.mockResolvedValueOnce(makeOkResponse({ terminated: true }));
       const result = await client.terminateApp({ appId: 'com.example.app' });
-      expect(result).toBe(true);
+      expect(result).toEqual({ terminated: true });
       const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toContain('/actions/terminate-app');
       expect(opts.method).toBe('POST');
@@ -232,7 +233,7 @@ describe('DaemonClient', () => {
       const client = DaemonClient.default();
       fetchMock.mockResolvedValueOnce(makeOkResponse({ terminated: false }));
       const result = await client.terminateApp({ appId: 'com.example.app' });
-      expect(result).toBe(false);
+      expect(result).toEqual({ terminated: false });
     });
   });
 
@@ -307,6 +308,53 @@ describe('DaemonClient', () => {
       const longMs = timeoutSpy.mock.calls[1]?.[0] as number;
       expect(longMs).toBeGreaterThan(shortMs);
       timeoutSpy.mockRestore();
+    });
+  });
+
+  describe('unexpected replies', () => {
+    const client = DaemonClient.default(47321);
+
+    it("turns Fastify's default 404 body into a clean error", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            message: 'Route not found',
+            error: 'Not Found',
+            statusCode: 404,
+          }),
+          { status: 404 },
+        ),
+      );
+      const err = await client.getContexts().catch((e: unknown) => e);
+      expect(err).toMatchObject({ code: 'UNEXPECTED_RESPONSE', httpStatus: 404 });
+      expect((err as Error).message).toMatch(/GET \/session\/contexts.*daemon:kill/);
+    });
+
+    it('turns a non-JSON body into a clean error', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response('<html>Bad Gateway</html>', { status: 502 }),
+      );
+      await expect(client.getContexts()).rejects.toMatchObject({
+        code: 'UNEXPECTED_RESPONSE',
+        details: '<html>Bad Gateway</html>',
+      });
+    });
+
+    it('rejects an ok envelope that carries no data', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+      await expect(client.getContexts()).rejects.toMatchObject({
+        code: 'UNEXPECTED_RESPONSE',
+      });
+    });
+
+    it('still surfaces a well-formed daemon error as-is', async () => {
+      fetchMock.mockResolvedValueOnce(
+        makeErrorResponse('ROUTE_NOT_FOUND', 'old daemon', 404),
+      );
+      await expect(client.getContexts()).rejects.toMatchObject({
+        code: 'ROUTE_NOT_FOUND',
+        message: 'old daemon',
+      });
     });
   });
 

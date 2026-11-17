@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
-import { DaemonClient } from '../daemon-client.js';
+import { ensureDaemon } from '../daemon-launcher.js';
 import { makeOutput } from '../output.js';
 import { parseChoice, parseInteger } from '../parse.js';
 import { resolveLocalPath } from '../paths.js';
@@ -76,16 +76,18 @@ export function registerConnect(program: Command): void {
           path: opts.serverPath,
         };
 
-        const client = await DaemonClient.fromDaemonState();
+        // The first command of any flow, so it starts the daemon when needed.
+        const client = await ensureDaemon();
         const result = await client.startSession({
           capabilities: resolveAppCapability(parsed.data),
           server,
         });
 
-        out.emit(result, () => {
-          console.log(`Session started: ${result.sessionId}`);
-          console.log(`Started at: ${result.startedAt}`);
-        });
+        // The capabilities Appium echoes back run to kilobytes and repeat what
+        // was just sent; device-info reports the parts worth reading.
+        out.emit({ sessionId: result.sessionId }, () =>
+          console.log(`Session started: ${result.sessionId}`),
+        );
       },
     );
 }

@@ -5,7 +5,11 @@ import {
   StaleElementError,
   ValidationError,
 } from '../../src/shared/errors.js';
-import { ElementRegistry, toWdioSelector } from '../../src/daemon/element-registry.js';
+import {
+  ElementRegistry,
+  fingerprintOf,
+  toWdioSelector,
+} from '../../src/daemon/element-registry.js';
 import type { SessionManager } from '../../src/daemon/session-manager.js';
 
 // ---------------------------------------------------------------------------
@@ -21,10 +25,11 @@ function makeElement(exists: boolean): WebdriverIO.Element {
   } as unknown as WebdriverIO.Element;
 }
 
+/** Lookups go through `$$`; an element that "does not exist" is simply not matched. */
 function makeDriver(element: WebdriverIO.Element) {
-  return { $: vi.fn().mockReturnValue(element) } as unknown as ReturnType<
-    SessionManager['getDriver']
-  >;
+  return {
+    $$: vi.fn(async () => ((await element.isExisting()) ? [element] : [])),
+  } as unknown as ReturnType<SessionManager['getDriver']>;
 }
 
 function makeSessionManager(element: WebdriverIO.Element, sessionId = 'sess-1') {
@@ -54,13 +59,10 @@ describe('ElementRegistry', () => {
       const ref = registry.store({
         selector: '~Login',
         strategy: 'accessibility id',
-        sessionId: 's1',
       });
       expect(ref.id).toBeTruthy();
       expect(ref.selector).toBe('~Login');
       expect(ref.strategy).toBe('accessibility id');
-      expect(ref.sessionId).toBe('s1');
-      expect(new Date(ref.foundAt).getTime()).toBeGreaterThan(0);
 
       expect(registry.retrieve(ref.id)).toEqual(ref);
     });
@@ -69,18 +71,60 @@ describe('ElementRegistry', () => {
       const a = registry.store({
         selector: '~A',
         strategy: 'accessibility id',
-        sessionId: 's1',
       });
       const b = registry.store({
         selector: '~B',
         strategy: 'accessibility id',
-        sessionId: 's1',
       });
       expect(a.id).not.toBe(b.id);
     });
 
     it('throws ElementRefNotFoundError for unknown id', () => {
       expect(() => registry.retrieve('ghost-id')).toThrow(ElementRefNotFoundError);
+    });
+
+    it('issues short, URL-safe IDs', () => {
+      const { id } = registry.store({
+        selector: '~A',
+        strategy: 'accessibility id',
+      });
+      expect(id).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    });
+
+    it('hands back the existing reference when the same element is found again', () => {
+      const first = registry.store({
+        selector: 'Cell',
+        strategy: 'class name',
+        index: 1,
+        fingerprint: 'Beta',
+      });
+      const again = registry.store({
+        selector: 'Cell',
+        strategy: 'class name',
+        index: 1,
+        fingerprint: 'Gamma',
+      });
+      expect(again.id).toBe(first.id);
+      expect(again.fingerprint).toBe('Gamma');
+      expect(registry.list()).toHaveLength(1);
+    });
+
+    it('drops a stale fingerprint when the element is found again without one', () => {
+      const opts = { selector: 'Cell', strategy: 'class name' as const };
+      registry.store({ ...opts, fingerprint: 'Beta' });
+      expect(registry.store(opts)).not.toHaveProperty('fingerprint');
+    });
+
+    it('keeps separate references for another index, selector or strategy', () => {
+      const base = { selector: 'Cell', strategy: 'class name' as const };
+      const a = registry.store(base);
+      const others = [
+        registry.store({ ...base, index: 1 }),
+        registry.store({ ...base, selector: 'Row' }),
+        registry.store({ ...base, strategy: 'xpath' }),
+      ];
+      for (const other of others) expect(other.id).not.toBe(a.id);
+      expect(registry.list()).toHaveLength(4);
     });
   });
 
@@ -90,15 +134,15 @@ describe('ElementRegistry', () => {
     });
 
     it('returns all stored refs', () => {
-      registry.store({ selector: '~A', strategy: 'accessibility id', sessionId: 's1' });
-      registry.store({ selector: '//btn', strategy: 'xpath', sessionId: 's1' });
+      registry.store({ selector: '~A', strategy: 'accessibility id' });
+      registry.store({ selector: '//btn', strategy: 'xpath' });
       expect(registry.list()).toHaveLength(2);
     });
   });
 
   describe('invalidateAll', () => {
     it('clears all stored refs', () => {
-      registry.store({ selector: '~A', strategy: 'accessibility id', sessionId: 's1' });
+      registry.store({ selector: '~A', strategy: 'accessibility id' });
       registry.invalidateAll();
       expect(registry.list()).toEqual([]);
     });
@@ -122,7 +166,7 @@ describe('ElementRegistry', () => {
       );
     });
 
-    it('calls driver.$() with the correct selector for each strategy', async () => {
+    it('looks up the correct selector for each strategy', async () => {
       const cases: Array<
         [import('../../src/shared/types.js').LocatorStrategy, string, string]
       > = [
@@ -153,7 +197,7 @@ describe('ElementRegistry', () => {
         } as unknown as SessionManager;
 
         await registry.findElement(strategy, selector, sm);
-        expect(driver.$).toHaveBeenCalledWith(expected);
+        expect(driver.$$).toHaveBeenCalledWith(expected);
       }
     });
 
@@ -180,7 +224,6 @@ describe('ElementRegistry', () => {
       const ref = registry.store({
         selector: '~Login',
         strategy: 'accessibility id',
-        sessionId: 'sess-1',
       });
 
       const result = await registry.retrieveElement(ref.id, sm);
@@ -201,7 +244,6 @@ describe('ElementRegistry', () => {
       const ref = registry.store({
         selector: '~Gone',
         strategy: 'accessibility id',
-        sessionId: 'sess-1',
       });
 
       await expect(registry.retrieveElement(ref.id, sm)).rejects.toThrow(
@@ -218,7 +260,6 @@ describe('ElementRegistry', () => {
 describe('ElementRegistry with ambiguous selectors', () => {
   function makeManager(elements: unknown[]) {
     const driver = {
-      $: vi.fn().mockReturnValue(elements[0]),
       $$: vi.fn().mockResolvedValue(elements),
     };
     return { getDriver: () => driver, driver } as never as {
@@ -234,7 +275,6 @@ describe('ElementRegistry with ambiguous selectors', () => {
     const ref = registry.store({
       selector: 'Cell',
       strategy: 'class name',
-      sessionId: 's1',
     });
     expect(ref.index).toBe(0);
   });
@@ -244,18 +284,20 @@ describe('ElementRegistry with ambiguous selectors', () => {
     const ref = registry.store({
       selector: 'Cell',
       strategy: 'class name',
-      sessionId: 's1',
       index: 2,
     });
     expect(ref.index).toBe(2);
   });
 
-  it('uses the single-element lookup for index 0', async () => {
+  it('makes a single device lookup, with no separate existence check', async () => {
     const registry = new ElementRegistry();
-    const manager = makeManager([existing()]);
-    await registry.findElement('class name', 'Cell', manager as never, 0);
-    expect(manager.driver.$).toHaveBeenCalled();
-    expect(manager.driver.$$).not.toHaveBeenCalled();
+    const match = existing();
+    const manager = makeManager([match]);
+    await expect(
+      registry.findElement('class name', 'Cell', manager as never, 0),
+    ).resolves.toBe(match);
+    expect(manager.driver.$$).toHaveBeenCalledTimes(1);
+    expect(match.isExisting).not.toHaveBeenCalled();
   });
 
   it('resolves the match list for a non-zero index', async () => {
@@ -282,7 +324,6 @@ describe('ElementRegistry with ambiguous selectors', () => {
     const ref = registry.store({
       selector: 'Cell',
       strategy: 'class name',
-      sessionId: 's1',
       index: 1,
     });
     await expect(registry.retrieveElement(ref.id, manager as never)).resolves.toBe(
@@ -296,32 +337,11 @@ describe('ElementRegistry with ambiguous selectors', () => {
     const ref = registry.store({
       selector: 'Cell',
       strategy: 'class name',
-      sessionId: 's1',
       index: 3,
     });
     await expect(registry.retrieveElement(ref.id, manager as never)).rejects.toThrow(
       StaleElementError,
     );
-  });
-
-  it('counts how many elements a selector matches', async () => {
-    const registry = new ElementRegistry();
-    const manager = makeManager([existing(), existing(), existing()]);
-    await expect(
-      registry.countMatches('class name', 'Cell', manager as never),
-    ).resolves.toBe(3);
-  });
-
-  it('counts zero rather than throwing when the lookup fails', async () => {
-    const registry = new ElementRegistry();
-    const manager = {
-      getDriver: () => ({
-        $$: vi.fn().mockRejectedValue(new Error('no session')),
-      }),
-    };
-    await expect(
-      registry.countMatches('class name', 'Cell', manager as never),
-    ).resolves.toBe(0);
   });
 
   it('returns every current match from findAll', async () => {
@@ -358,7 +378,6 @@ describe('ElementRegistry positional references', () => {
     return registry.store({
       selector: 'Cell',
       strategy: 'class name',
-      sessionId: 's1',
       index,
       fingerprint,
     });
@@ -368,7 +387,7 @@ describe('ElementRegistry positional references', () => {
     const registry = new ElementRegistry();
     expect(storeAt(registry, 1, 'Beta').fingerprint).toBe('Beta');
     expect(
-      registry.store({ selector: 'Cell', strategy: 'class name', sessionId: 's1' }),
+      registry.store({ selector: 'Cell', strategy: 'class name' }),
     ).not.toHaveProperty('fingerprint');
   });
 
@@ -401,6 +420,53 @@ describe('ElementRegistry positional references', () => {
     await expect(
       registry.retrieveElement(ref.id, managerWith([cell('Gamma'), cell('Delta')])),
     ).rejects.toThrow(StaleElementError);
+  });
+
+  it('fingerprints a textless element by its rect, not by empty text', async () => {
+    const icon = {
+      getText: vi.fn().mockResolvedValue(''),
+      getLocation: vi.fn().mockResolvedValue({ x: 10, y: 20 }),
+      getSize: vi.fn().mockResolvedValue({ width: 44, height: 44 }),
+    };
+    await expect(fingerprintOf(icon)).resolves.toBe('@10,20 44x44');
+  });
+
+  it('has no fingerprint when neither text nor rect can be read', async () => {
+    const broken = {
+      getText: vi.fn().mockRejectedValue(new Error('gone')),
+      getLocation: vi.fn().mockRejectedValue(new Error('gone')),
+      getSize: vi.fn().mockRejectedValue(new Error('gone')),
+    };
+    await expect(fingerprintOf(broken)).resolves.toBeUndefined();
+  });
+
+  it('reports stale when a rect-fingerprinted element no longer fills its spot', async () => {
+    const registry = new ElementRegistry();
+    const ref = storeAt(registry, 1, '@0,100 44x44');
+    const iconAt = (y: number) => ({
+      getText: vi.fn().mockResolvedValue(''),
+      getLocation: vi.fn().mockResolvedValue({ x: 0, y }),
+      getSize: vi.fn().mockResolvedValue({ width: 44, height: 44 }),
+    });
+
+    // The list scrolled: a different icon sits at index 1 and the original
+    // rect now belongs to index 2. Rects cannot be followed, so this is stale.
+    await expect(
+      registry.retrieveElement(ref.id, managerWith([iconAt(0), iconAt(50), iconAt(100)])),
+    ).rejects.toThrow(StaleElementError);
+  });
+
+  it('accepts a rect-fingerprinted element still in its spot', async () => {
+    const registry = new ElementRegistry();
+    const ref = storeAt(registry, 1, '@0,100 44x44');
+    const icon = {
+      getText: vi.fn().mockResolvedValue(''),
+      getLocation: vi.fn().mockResolvedValue({ x: 0, y: 100 }),
+      getSize: vi.fn().mockResolvedValue({ width: 44, height: 44 }),
+    };
+    await expect(
+      registry.retrieveElement(ref.id, managerWith([cell('Alpha'), icon])),
+    ).resolves.toBe(icon);
   });
 
   it('reports stale when several other matches carry the fingerprint', async () => {

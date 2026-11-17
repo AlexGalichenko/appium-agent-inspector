@@ -1,6 +1,7 @@
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
 import { makeOutput } from '../output.js';
+import { addSourceOption, printScreen, screenAfter } from '../screen.js';
 import { parseChoice, parseInteger, parseStrategy } from '../parse.js';
 import { ValidationError } from '../../shared/errors.js';
 import {
@@ -16,8 +17,7 @@ const MAX_SWIPES_LIMIT = 50;
 export function registerScroll(program: Command): void {
   const out = makeOutput(program);
 
-  program
-    .command('scroll')
+  addSourceOption(program.command('scroll'))
     .description('Scroll the screen, optionally until an element comes into view')
     .option(
       '--direction <direction>',
@@ -42,6 +42,7 @@ export function registerScroll(program: Command): void {
         toStrategy?: string;
         toSelector?: string;
         maxSwipes: string;
+        source: boolean;
       }) => {
         const percent = Number(opts.percent);
         if (!Number.isFinite(percent) || percent <= 0 || percent > 0.95) {
@@ -79,17 +80,19 @@ export function registerScroll(program: Command): void {
 
         const client = await DaemonClient.fromDaemonState();
         const result = await client.scroll(req);
+        const screen = await screenAfter(client, opts);
 
-        out.emit(result, () => {
+        out.emit({ ...result, ...screen }, () => {
           if (result.found === null) {
-            console.log(`Scrolled ${result.direction}.`);
+            console.log(`Scrolled ${req.direction}.`);
           } else if (result.found) {
             console.log(`Element in view after ${result.swipes} swipe(s).`);
           } else {
             console.log(
-              `Element not found after ${result.swipes} swipe(s) scrolling ${result.direction}.`,
+              `Element not found after ${result.swipes} swipe(s) scrolling ${req.direction}.`,
             );
           }
+          printScreen(screen);
         });
       },
     );

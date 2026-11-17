@@ -14,7 +14,7 @@ describe('scroll', () => {
   let scroll: ReturnType<typeof resolves>;
 
   beforeEach(() => {
-    scroll = resolves({ direction: 'down', swipes: 1, found: null });
+    scroll = resolves({ swipes: 1, found: null });
     useClient({ scroll });
   });
 
@@ -104,14 +104,19 @@ describe('scroll', () => {
     });
 
     it('reports how many swipes it took to reveal the element', async () => {
-      useClient({ scroll: resolves({ direction: 'down', swipes: 3, found: true }) });
+      useClient({ scroll: resolves({ swipes: 3, found: true }) });
       const lines = await runCommand(registerScroll, ['scroll', ...TO_ELEMENT]);
       expect(lines).toEqual(['Element in view after 3 swipe(s).']);
     });
 
     it('reports giving up, including the direction it tried', async () => {
-      useClient({ scroll: resolves({ direction: 'up', swipes: 10, found: false }) });
-      const lines = await runCommand(registerScroll, ['scroll', ...TO_ELEMENT]);
+      useClient({ scroll: resolves({ swipes: 10, found: false }) });
+      const lines = await runCommand(registerScroll, [
+        'scroll',
+        '--direction',
+        'up',
+        ...TO_ELEMENT,
+      ]);
       expect(lines).toEqual(['Element not found after 10 swipe(s) scrolling up.']);
     });
   });

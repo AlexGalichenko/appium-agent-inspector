@@ -4,11 +4,14 @@ Every command exits non-zero on failure and prints one `Error [CODE]: message` l
 
 | Error code | Meaning | Fix |
 |---|---|---|
-| `DAEMON_NOT_RUNNING` | Daemon process not found | Run `daemon:start` |
+| `DAEMON_NOT_RUNNING` | Daemon process not found | Run `connect` (it starts the daemon) |
 | `DAEMON_START_FAILED` | Daemon exited or never became healthy while starting | Read the log path in the message |
 | `DAEMON_START_LOCKED` | Another `daemon:start` is still running | Wait, then run `daemon:start` again |
 | `DAEMON_TIMEOUT` | Daemon did not respond in time | Check `~/.appium-agent/daemon.log`; `daemon:kill` then `daemon:start` |
 | `UNAUTHORIZED` | Token mismatch (stale state file) | `daemon:kill` then `daemon:start` |
+| `SESSION_START_FAILED` | Appium could not create the session | Read the reason: missing driver, device not booted, bad caps |
+| `DRIVER_ERROR` | The driver refused the command; its message says why (e.g. install ffmpeg) | Follow the message; the session is still usable |
+| `ROUTE_NOT_FOUND` / `UNEXPECTED_RESPONSE` | Running daemon is a different version than the CLI | `daemon:kill` then `daemon:start` |
 | `SESSION_NOT_ACTIVE` | No session — never opened, idle-closed, or dropped by Appium | Run `connect` |
 | `SESSION_ALREADY_ACTIVE` | Session already open, or still starting | Run `delete-session` first, or proceed; never `connect` in parallel |
 | `ELEMENT_NOT_FOUND` | Element not in current view | Check selector / scroll to reveal |

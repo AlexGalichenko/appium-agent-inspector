@@ -108,6 +108,9 @@ export interface StartSessionResponse {
   startedAt: string;
 }
 
+export type SessionStatusResponse =
+  { active: false } | ({ active: true } & StartSessionResponse);
+
 // ---------------------------------------------------------------------------
 // Context (native / webview) switching
 // ---------------------------------------------------------------------------
@@ -140,14 +143,16 @@ export interface DeviceInfoResponse {
 // Element reference
 // ---------------------------------------------------------------------------
 
+/**
+ * A stored handle on an element. The registry is cleared whenever the session
+ * ends, so a reference never outlives the session it was found in.
+ */
 export interface ElementReference {
   id: string;
   selector: string;
   strategy: LocatorStrategy;
   /** Position among all matches for the selector. 0 for a unique match. */
   index: number;
-  foundAt: string;
-  sessionId: string;
   /**
    * The element's text when it was found, recorded only for positional
    * references (an ambiguous selector). Positions shift as lists scroll and
@@ -174,19 +179,17 @@ export type FindElementRequest = z.infer<typeof FindElementRequestSchema>;
 /** What a caller may send: `index` and `all` fall back to their defaults. */
 export type FindElementInput = z.input<typeof FindElementRequestSchema>;
 
+/** The caller already knows the selector it sent, so it is not echoed back. */
 export interface FindElementResponse {
   elementId: string;
-  selector: string;
-  strategy: LocatorStrategy;
   index: number;
-  foundAt: string;
   /** Total matches for the selector, so callers can detect ambiguity. */
   matchCount: number;
 }
 
 export interface FindElementsResponse {
   matchCount: number;
-  elements: FindElementResponse[];
+  elements: Array<{ elementId: string; index: number }>;
 }
 
 export const WaitConditionSchema = z.enum(['existing', 'displayed', 'gone', 'enabled']);
@@ -196,7 +199,8 @@ export type WaitCondition = z.infer<typeof WaitConditionSchema>;
 // Action requests
 // ---------------------------------------------------------------------------
 
-const ElementTargetSchema = z.union([
+/** Either a stored reference or a locator — every element action takes one. */
+export const ElementTargetSchema = z.union([
   z.object({ elementId: z.string().min(1) }),
   z.object({
     strategy: LocatorStrategySchema,
@@ -206,12 +210,6 @@ const ElementTargetSchema = z.union([
 ]);
 
 export type ElementTarget = z.infer<typeof ElementTargetSchema>;
-
-export const ClickRequestSchema = ElementTargetSchema;
-export type ClickRequest = z.infer<typeof ClickRequestSchema>;
-
-export const GetLocationRequestSchema = ElementTargetSchema;
-export type GetLocationRequest = z.infer<typeof GetLocationRequestSchema>;
 
 export interface ElementRectResponse {
   x: number;
@@ -228,9 +226,6 @@ export const TypeRequestSchema = ElementTargetSchema.and(
 );
 export type TypeRequest = z.infer<typeof TypeRequestSchema>;
 
-export const GetTextRequestSchema = ElementTargetSchema;
-export type GetTextRequest = z.infer<typeof GetTextRequestSchema>;
-
 export interface GetTextResponse {
   text: string;
 }
@@ -246,8 +241,6 @@ export type WaitRequest = z.infer<typeof WaitRequestSchema>;
 export type WaitInput = z.input<typeof WaitRequestSchema>;
 
 export interface WaitResponse {
-  condition: WaitCondition;
-  selector: string;
   waitedMs: number;
 }
 
@@ -277,7 +270,6 @@ export type ScrollRequest = z.infer<typeof ScrollRequestSchema>;
 export type ScrollInput = z.input<typeof ScrollRequestSchema>;
 
 export interface ScrollResponse {
-  direction: ScrollDirection;
   swipes: number;
   found: boolean | null;
 }
@@ -286,32 +278,20 @@ export interface ScrollResponse {
 // App management requests
 // ---------------------------------------------------------------------------
 
-export const ActivateAppRequestSchema = z.object({
+/** Bundle ID (iOS) or package name (Android) — activate and terminate take it. */
+export const AppIdRequestSchema = z.object({
   appId: z.string().min(1),
 });
-
-export type ActivateAppRequest = z.infer<typeof ActivateAppRequestSchema>;
-
-export const TerminateAppRequestSchema = z.object({
-  appId: z.string().min(1),
-});
-
-export type TerminateAppRequest = z.infer<typeof TerminateAppRequestSchema>;
 
 export const InstallAppRequestSchema = z.object({
   appPath: z.string().min(1),
 });
 
-export type InstallAppRequest = z.infer<typeof InstallAppRequestSchema>;
-
 export const GetAttributeRequestSchema = ElementTargetSchema.and(
   z.object({ attribute: z.string().min(1) }),
 );
 
-export type GetAttributeRequest = z.infer<typeof GetAttributeRequestSchema>;
-
 export interface GetAttributeResponse {
-  attribute: string;
   value: string | null;
 }
 
@@ -323,8 +303,6 @@ export const ExecuteCommandRequestSchema = z.object({
   command: z.string().min(1),
   params: z.record(z.string(), z.unknown()).optional(),
 });
-
-export type ExecuteCommandRequest = z.infer<typeof ExecuteCommandRequestSchema>;
 
 export interface ExecuteCommandResponse {
   result: unknown;
@@ -366,11 +344,7 @@ export const PerformActionRequestSchema = z.union([
   RawActionsSchema,
 ]);
 
-export type PerformActionRequest = z.infer<typeof PerformActionRequestSchema>;
-
-export interface PerformActionResponse {
-  message: string;
-}
+export type PerformActionInput = z.input<typeof PerformActionRequestSchema>;
 
 // ---------------------------------------------------------------------------
 // Page source response
@@ -378,7 +352,6 @@ export interface PerformActionResponse {
 
 export interface PageSourceResponse {
   source: string;
-  capturedAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -387,7 +360,6 @@ export interface PageSourceResponse {
 
 export interface ScreenshotResponse {
   data: string; // base64-encoded PNG
-  capturedAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +368,11 @@ export interface ScreenshotResponse {
 
 export interface VideoStopResponse {
   data: string; // base64-encoded MP4
-  stoppedAt: string;
+}
+
+/** Routes that only confirm they ran. */
+export interface MessageResponse {
+  message: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import {
   writeDaemonState,
 } from '../../src/shared/state-file.js';
 import type { DaemonState } from '../../src/shared/types.js';
+import { CONFIG_DIR } from '../../src/shared/constants.js';
 
 vi.mock('node:fs/promises', () => ({
   chmod: vi.fn().mockResolvedValue(undefined),
@@ -25,7 +26,7 @@ describe('writeDaemonState', () => {
   it('creates an owner-only config dir and writes JSON', async () => {
     const { mkdir, writeFile } = await import('node:fs/promises');
     await writeDaemonState(state);
-    expect(mkdir).toHaveBeenCalledWith(expect.stringContaining('.appium-agent'), {
+    expect(mkdir).toHaveBeenCalledWith(CONFIG_DIR, {
       recursive: true,
       mode: 0o700,
     });

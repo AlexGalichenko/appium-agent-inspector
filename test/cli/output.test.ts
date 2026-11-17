@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
-import { makeOutput } from '../../src/cli/output.js';
+import { formatJson, makeOutput } from '../../src/cli/output.js';
 
 /**
  * `isTTY` is absent rather than false on a non-tty stdout, so there is no getter
@@ -71,5 +71,12 @@ describe('makeOutput', () => {
   it('reports which mode is active', () => {
     expect(makeOutput(programWith(true)).isJson()).toBe(true);
     expect(makeOutput(programWith(false)).isJson()).toBe(false);
+  });
+});
+
+describe('formatJson', () => {
+  it('indents for a terminal and stays compact for a pipe', () => {
+    expect(formatJson({ a: 1 }, { isTTY: true })).toBe('{\n  "a": 1\n}');
+    expect(formatJson({ a: 1 }, {})).toBe('{"a":1}');
   });
 });

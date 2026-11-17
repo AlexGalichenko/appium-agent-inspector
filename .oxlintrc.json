@@ -22,6 +22,14 @@
   "ignorePatterns": ["dist/**", "node_modules/**", "coverage/**"],
   "overrides": [
     {
+      // An Express rule: Fastify awaits async handlers and routes their
+      // rejections to the error handler, which is the whole design here.
+      "files": ["src/daemon/**/*.ts"],
+      "rules": {
+        "oxc/no-async-endpoint-handlers": "off"
+      }
+    },
+    {
       "files": ["test/**/*.ts"],
       "rules": {
         "typescript/no-explicit-any": "off"

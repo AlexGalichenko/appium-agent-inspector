@@ -1,114 +1,78 @@
 ---
 name: appium-agent
-description: Interact with a running iOS or Android app via the appium-agent-inspector CLI daemon. Use this skill whenever the user wants to automate or inspect a mobile app — tapping elements, typing text, getting the page source, taking screenshots, finding UI elements, starting or stopping the app, activating or terminating apps, or checking session status. Trigger on phrases like "click on", "tap", "type into", "find element", "get page source", "take a screenshot", "capture screen", "screenshot", "start the app", "close the app", "activate app", "terminate app", "launch", "interact with the app", "inspect the UI", or anything that involves controlling a device screen. Also trigger proactively when the user describes a multi-step mobile UI flow to automate.
+description: Drive and inspect a running iOS or Android app through the appium-agent CLI — read the screen, find, tap, type, wait, scroll, screenshot, launch or close apps. Use for any mobile UI automation or inspection task.
 ---
 
 # Appium Agent
 
-Control iOS and Android apps through the persistent appium-agent daemon. The daemon
-keeps an Appium session alive between commands, so you never restart the app mid-flow.
+Drive iOS and Android apps through the appium-agent daemon, which keeps one Appium
+session alive between commands. Call `appium-agent <command>` directly — `npx`
+adds ~0.3 s to every call; if the binary is missing, run
+`npm install -g appium-agent-inspector` once (or prefix commands with `npx`).
+Failures exit non-zero with one `Error [CODE]: message` line. `--json` gives
+machine-readable output on any command except `page-source`, where plain text is
+smaller.
 
-All commands run as `npx appium-agent <command> [options]`. Every command exits
-non-zero on failure and prints a single `Error [CODE]: message` line. Add `--json`
-for machine-readable output — except on `page-source`, where the plain form is both
-smaller and easier to read.
-
-## Reference pages
-
-Read these only when the task calls for them:
+Reference pages — read only when the task needs them:
 
 | Page | Covers |
 |---|---|
-| `references/gestures.md` | `perform-action`, `get-location`, drag & drop, pinch/spread, raw coordinates |
+| `references/gestures.md` | `perform-action`, `get-location`, drag & drop, pinch, raw coordinates |
 | `references/mobile-commands.md` | `execute` and driver-native `mobile:` commands |
 | `references/media.md` | `take-screenshot`, `video-start`, `video-stop` |
-| `references/webviews.md` | `context`, hybrid apps, web views |
+| `references/webviews.md` | `context`, hybrid apps |
 | `references/app-lifecycle.md` | `install-app`, `activate-app`, `terminate-app` |
-| `references/errors.md` | Every error code, and why sessions and element references go stale |
+| `references/errors.md` | Every error code; why sessions and references go stale |
 
-## 1. Start the daemon
-
-```bash
-npx appium-agent daemon:start
-```
-
-A no-op if the daemon is already running — safe to call every time, even from
-several commands at once. `npx appium-agent daemon:kill` stops it.
-
-## 2. Create a session
+## Start
 
 ```bash
-npx appium-agent connect --caps '{
-  "platformName": "iOS",
-  "appium:automationName": "XCUITest",
-  "appium:deviceName": "iPhone 15",
-  "appium:bundleId": "com.example.app"
-}'
+appium-agent connect --caps '{"platformName":"iOS","appium:automationName":"XCUITest","appium:deviceName":"iPhone 15","appium:bundleId":"com.example.app"}'
 ```
 
-Optional server flags: `--server-protocol` (`http` or `https`, default `http`),
-`--server-host`, `--server-port` (default `localhost:4723`, or port 443 for `https`),
-`--server-path`. For a cloud or TLS endpoint pass the scheme via `--server-protocol`,
-not in `--server-host`. A relative `appium:app` path resolves against the current directory.
+`connect` starts the daemon if it is not running (`daemon:kill` stops it), and can
+take a minute — run it once and wait; a second `connect` meanwhile
+fails with `SESSION_ALREADY_ACTIVE`. Unsure whether a session survived? Run
+`session-status` rather than reconnecting. Server flags: `--server-protocol`
+(`http`/`https`), `--server-host`, `--server-port` (default 4723, or 443 for https),
+`--server-path`. A relative `appium:app` path resolves against the current directory.
+Sessions close after 30 idle minutes. `delete-session` ends one and clears all
+element references; `device-info` shows platform, screen size and orientation.
 
-Run `connect` once and wait for it — creating a session can take a minute. A second
-`connect` while the first is starting fails with `SESSION_ALREADY_ACTIVE`.
-
-## 3. Read the screen
-
-**Always read the page source before finding or interacting with any element. Do not
-guess selectors.**
+## Read the screen first — never guess a selector
 
 ```bash
-npx appium-agent page-source
+appium-agent page-source
 ```
 
-This prints a compact accessibility tree. Only elements **actually on screen** appear
-— if something you expect is missing, scroll to it rather than clicking blind.
-
 ```
-- linearlayout [id="toolbar"]:
-  - imagebutton "Navigate up" [clickable]
-  - textview "Shop" [id="toolbar_title"]
 - recyclerview [scrollable, id="list"]:
   - framelayout [clickable, id="row"]:
     - textview "Item 0" [id="title"]
     - button "Add" [clickable, id="add"]
-  # +24 same-shape siblings; [n] is the sibling position, tokens align with the example above, "=" means unchanged:
+  # +24 more like above; "=" = same, [n] is not an --index:
   - [1] = "Item 1" = =
-  - [2] = "Item 2" = =
 ```
 
-Repeated list rows are summarised: the first row is shown in full, and each later row
-becomes one line holding only what differs from it, position by position. A `[n]` is
-that row's position **within the run** — it is not a `find-element --index`, which
-counts matches of one selector across the whole screen. Pass `--no-collapse` to list
-every row in full.
+Only on-screen elements appear — if something is missing, scroll to it. Repeated
+rows show the first in full, then one line per row with only what differs, position
+by position. `[n]` counts rows within the run; it is not `--index`, which counts
+matches of one selector. `×2` marks identical neighbours. Flags: `--bounds` adds
+`@centreX,centreY WxH` to tap targets; `--no-collapse` prints every row and line;
+`--raw` prints the XML (several times larger — redirect it to a file, and only use
+it for an attribute the tree lacks).
 
-Useful flags:
+To see the result of an action, add `--source` to `click`, `type`, `wait`,
+`scroll`, `perform-action` or `activate-app`: it prints the screen in the same call.
+`page-source --diff` prints only what changed since the last read (`+`/`-` lines
+under their parent), or the full tree when the screen is new — use it after small
+changes such as typing.
 
-- `--bounds` annotates tap targets with `@centreX,centreY WidthxHeight`, so you can go
-  straight to a coordinate tap without a `get-location` round trip.
-- `--raw` prints the full XML. Only reach for it when a selector you need is missing
-  from the tree (an `xpath`-only attribute, say) — it is several times larger, so
-  redirect it: `npx appium-agent page-source --raw > /tmp/page.xml`.
+## Locate
 
-## 4. Find elements
-
-```bash
-npx appium-agent find-element --strategy "accessibility id" --selector "Login"
-# → ID: V1StGXR8_Z5jd
-```
-
-If the selector is ambiguous it stores the first match and says so:
-
-```
-Note: selector matches 23 elements; stored index 0. Use --index or --all to reach the others.
-```
-
-Use `--index <n>` for a specific match, or `--all` to store a reference for every match.
-
-**Locator strategies:**
+Every element command takes `--strategy` + `--selector` (plus `--index <n>` for the
+n-th match), or `--element-id` from `find-element`. Pass locators inline;
+`find-element` only pays off when you reuse the element several times.
 
 | Strategy | Example selector |
 |---|---|
@@ -121,127 +85,62 @@ Use `--index <n>` for a specific match, or `--all` to store a reference for ever
 | `-android uiautomator` | `text("Login")` |
 | `css selector` | `button.primary` (web views only) |
 
-Selectors for `xpath`, `class name`, `css selector`, `-ios predicate string` and
-`-ios class chain` must be on a single line; a line break fails with `VALIDATION_ERROR`.
+xpath, class name, css and both `-ios` selectors must fit on one line.
 
-## 5. Act
-
-**Click:**
 ```bash
-npx appium-agent click --strategy "accessibility id" --selector "Login"
-npx appium-agent click --element-id V1StGXR8_Z5jd
+appium-agent find-element --strategy "accessibility id" --selector "Login"
+# → ID: V1StGXR8_Z5jd   (+ a note if the selector matches several; --all stores each)
 ```
 
-Pass the locator inline for a one-off action. `find-element` first only pays off when
-you will act on the same element again in the same view — otherwise it is an extra
-round trip for the same result.
+A reference re-finds its element at action time: it survives a re-render, not a
+navigation. `STALE_ELEMENT` always means run `find-element` again.
 
-**Type:** `type` **appends** to whatever the field holds. Pass `--clear` to replace it,
-and do so for any field that may be pre-filled.
+## Act
 
 ```bash
-npx appium-agent type --strategy "id" --selector "username_field" --text "admin" --clear
-npx appium-agent type --element-id V1StGXR8_Z5jd --text "admin@example.com"
+appium-agent click --strategy "accessibility id" --selector "Login"
+appium-agent type  --strategy "id" --selector "username" --text "admin" --clear
+appium-agent get-text --element-id V1StGXR8_Z5jd
+appium-agent get-attribute --strategy "id" --selector "toggle" --attribute value   # → 1
 ```
 
-**Wait — use this instead of sleeping.** After anything that navigates, loads or
-animates, wait for the next screen rather than re-reading `page-source` in a loop:
+`type` **appends** — pass `--clear` unless you mean to add to existing text.
+(A password field cannot be read back, so typing into one always replaces it.)
+Common attributes: `value`, `label`, `name`, `enabled`, `visible`, `focused`.
+
+**Wait instead of sleeping or re-reading `page-source`** after anything that
+navigates, loads or animates:
 
 ```bash
-npx appium-agent wait --strategy "accessibility id" --selector "Dashboard" --for displayed
-# → "Dashboard" is displayed (after 412ms).
+appium-agent click --strategy "accessibility id" --selector "Login"
+appium-agent wait --strategy "accessibility id" --selector "Dashboard" --source
+# → OK after 412ms.  + the new screen
 ```
 
-Conditions: `displayed` (default), `existing`, `enabled`, `gone`. Use `gone` for a
-spinner or modal. `--timeout <ms>` defaults to 10000 (max 600000); a wait that never
-succeeds fails with `WAIT_TIMEOUT` rather than hanging.
+`--for displayed` (default) / `existing` / `enabled` / `gone` (spinners, modals);
+`--timeout <ms>` defaults to 10000. Failure is `WAIT_TIMEOUT`, never a hang.
 
-**Scroll.** Prefer `scroll` over hand-computed swipes — it reads the real screen size,
-so it works on any device:
+**Scroll** rather than hand-computing swipes — it uses the real screen size:
 
 ```bash
-npx appium-agent scroll --direction down \
-  --to-strategy "accessibility id" --to-selector "Submit" --max-swipes 10
+appium-agent scroll --direction down --to-strategy "accessibility id" --to-selector "Submit"
 # → Element in view after 3 swipe(s).
-
-npx appium-agent scroll --direction down     # one screenful
 ```
 
-Direction is the direction the *content* moves: `down` reveals content below.
-`--percent <0-0.95>` sets how far each swipe travels (default 0.6); `--max-swipes`
-accepts 1–50 (default 10). `Element not found after N swipe(s)` is a signal to re-read
-`page-source`, not to keep scrolling.
+Direction is where content moves (`down` reveals what is below). Without `--to-*`
+it scrolls one screenful. `--max-swipes` 1–50 (default 10), `--percent` 0–0.95
+(default 0.6). "Not found after N swipes" means re-read `page-source`, not scroll more.
 
-**Read a value:**
-```bash
-npx appium-agent get-text --strategy "accessibility id" --selector "greeting"
-# → Welcome back, Alex
+Chain independent commands with `&&` in one shell call.
 
-npx appium-agent get-attribute --element-id V1StGXR8_Z5jd --attribute value
-# → value: 0
-```
+## When the screen and the tree disagree (iOS)
 
-Common attributes: `value`, `label`, `name`, `enabled`, `visible`, `accessible`, `focused`.
-
-## 6. Session state
-
-```bash
-npx appium-agent session-status
-# → Active session: dc3e025e-689c-49e4-bd33-80bdd57c6a9c
-
-npx appium-agent device-info
-# → Platform: iOS 18.0 / Device: iPhone 15 / Screen: 393x852 / Orientation: PORTRAIT
-
-npx appium-agent delete-session
-```
-
-Check `session-status` when unsure whether a session survived — it avoids a spurious
-`connect` that would fail with `SESSION_ALREADY_ACTIVE`. Sessions also close on their
-own after 30 idle minutes; see `references/errors.md`.
-
-`delete-session` closes the session and clears all stored element references.
-
-## Element references
-
-`find-element` returns a short ID (e.g. `V1StGXR8_Z5jd`) usable as `--element-id`. The
-daemon re-finds the element from its stored selector at action time, so a reference
-survives a re-render but not a navigation — a gone element fails with `STALE_ELEMENT`,
-and the fix is always to run `find-element` again. `references/errors.md` covers the
-ambiguous-selector cases.
-
-## Multi-step flow example
-
-```bash
-npx appium-agent daemon:start
-npx appium-agent connect --caps '{"platformName":"iOS","appium:automationName":"XCUITest","appium:deviceName":"iPhone 15","appium:bundleId":"com.example.app"}'
-
-# Read the screen, then act on what is actually there
-npx appium-agent page-source
-npx appium-agent type --strategy "accessibility id" --selector "Username" --text "admin" --clear
-npx appium-agent type --strategy "accessibility id" --selector "Password" --text "secret" --clear
-npx appium-agent click --strategy "accessibility id" --selector "Login"
-
-# Wait for the next screen instead of guessing at a delay
-npx appium-agent wait --strategy "accessibility id" --selector "Dashboard" --for displayed
-
-# Inspect it, then scroll to something below the fold
-npx appium-agent page-source
-npx appium-agent scroll --direction down \
-  --to-strategy "accessibility id" --to-selector "Settings" --max-swipes 8
-npx appium-agent click --strategy "accessibility id" --selector "Settings"
-
-npx appium-agent delete-session
-```
-
-## Working efficiently
-
-- Read `page-source` before acting; never guess a selector.
-- Pass locators inline. Use `find-element` only when you need the ID more than once.
-- `wait` after anything that navigates — faster and far more reliable than polling
-  `page-source`.
-- `scroll --to-selector` rather than repeated blind swipes.
-- `--bounds` when you plan to tap coordinates; it saves a `get-location` call.
-- Pass `--clear` to `type` unless you deliberately want to append.
-- The tree already omits off-screen elements, so if something is missing, scroll — do
-  not fall back to `--raw` unless you need an attribute the tree does not show.
-- Chain independent commands in one shell invocation with `&&` rather than one per step.
+- A `click` that succeeds but changes nothing: `take-screenshot`, then
+  `perform-action` a tap where the element is actually drawn — iOS can report a
+  stale frame (seen on search results).
+- A control you can see is missing from the tree, or `wait --for displayed` times
+  out on it: iOS marked it invisible. Use `--for existing`, or read the frame from
+  `page-source --raw`. When iOS marks *every* control invisible (popovers, some
+  alerts), the tree says so on its first line and shows on-screen elements anyway.
+- The keyboard appears as one `keyboard [N keys]` line plus its Return/Search key;
+  tap that key to submit or dismiss. `scroll` keeps its swipe above the keyboard.

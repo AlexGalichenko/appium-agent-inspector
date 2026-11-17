@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { AppiumAgentError } from '../shared/errors.js';
+import { formatJson } from './output.js';
 import { registerStartDaemon } from './commands/start-daemon.command.js';
 import { registerKillDaemon } from './commands/kill-daemon.command.js';
 import { registerConnect } from './commands/connect.command.js';
@@ -83,19 +84,16 @@ registerInstall(program);
 
 function reportError(err: unknown): never {
   const asJson = program.opts()['json'] === true;
+  const printJson = (error: object) =>
+    console.error(formatJson({ ok: false, error }, process.stderr));
 
   if (err instanceof AppiumAgentError) {
     if (asJson) {
-      console.error(
-        JSON.stringify(
-          {
-            ok: false,
-            error: { code: err.code, message: err.message, details: err.details },
-          },
-          null,
-          2,
-        ),
-      );
+      printJson({
+        code: err.code,
+        message: err.message,
+        ...(err.details !== undefined && { details: err.details }),
+      });
     } else {
       console.error(`Error [${err.code}]: ${err.message}`);
       if (err.details !== undefined) {
@@ -109,9 +107,7 @@ function reportError(err: unknown): never {
 
   const message = err instanceof Error ? err.message : String(err);
   if (asJson) {
-    console.error(
-      JSON.stringify({ ok: false, error: { code: 'UNKNOWN', message } }, null, 2),
-    );
+    printJson({ code: 'UNKNOWN', message });
   } else {
     console.error(`Error: ${message}`);
   }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { nanoid } from 'nanoid';
+import { randomBytes } from 'node:crypto';
 import {
   DAEMON_HOST,
   DAEMON_LOG_FILE,
@@ -69,9 +69,6 @@ async function main() {
   });
   const elementRegistry = new ElementRegistry();
 
-  // Stored element references are only meaningful within a session.
-  sessionManager.setSessionLostHandler(() => elementRegistry.invalidateAll());
-
   let shuttingDown = false;
 
   async function forceExit(reason: string): Promise<never> {
@@ -104,7 +101,8 @@ async function main() {
     }
   }
 
-  const token = process.env['APPIUM_AGENT_TOKEN'] ?? nanoid(32);
+  const token =
+    process.env['APPIUM_AGENT_TOKEN'] ?? randomBytes(24).toString('base64url');
   const server = await buildServer({
     sessionManager,
     elementRegistry,

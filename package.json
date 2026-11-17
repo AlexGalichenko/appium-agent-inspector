@@ -1,6 +1,6 @@
 {
   "name": "appium-agent-inspector",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "CLI daemon for AI-driven mobile UI inspection and automation via Appium",
   "keywords": [
     "appium",
@@ -55,21 +55,19 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\""
   },
   "dependencies": {
-    "commander": "^15.0.0",
-    "fastify": "^5.12.5",
-    "nanoid": "^6.0.1",
-    "pino": "^10.3.1",
-    "pino-pretty": "^13.1.3",
-    "webdriverio": "^9.31.9",
-    "zod": "^4.6.5"
+    "commander": "^15.1.0",
+    "fastify": "^5.12.8",
+    "pino": "^10.4.0",
+    "webdriverio": "^10.1.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^26.6.2",
-    "@vitest/coverage-v8": "^5.0.1",
-    "oxlint": "^1.83.0",
-    "prettier": "^3.9.8",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.1.0",
+    "oxlint": "^1.94.0",
+    "prettier": "^3.10.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.1.0"
   }
 }

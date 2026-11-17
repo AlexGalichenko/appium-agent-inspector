@@ -18,17 +18,13 @@ export function registerVideoStop(program: Command): void {
       const result = await client.stopVideoRecording();
 
       if (opts.base64) {
-        out.emit({ data: result.data, stoppedAt: result.stoppedAt }, () =>
-          console.log(result.data),
-        );
+        out.emit({ data: result.data }, () => console.log(result.data));
         return;
       }
 
       const path = output ?? join(tmpdir(), `appium-recording-${Date.now()}.mp4`);
       await writeFile(path, Buffer.from(result.data, 'base64'));
 
-      out.emit({ path, stoppedAt: result.stoppedAt }, () =>
-        console.log(`Recording saved to ${path}`),
-      );
+      out.emit({ path }, () => console.log(`Recording saved to ${path}`));
     });
 }

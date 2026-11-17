@@ -1,4 +1,4 @@
-import { nanoid } from 'nanoid';
+import { randomBytes } from 'node:crypto';
 import {
   ElementNotFoundError,
   ElementRefNotFoundError,
@@ -14,21 +14,42 @@ export class ElementRegistry {
   store(opts: {
     selector: string;
     strategy: LocatorStrategy;
-    sessionId: string;
     index?: number;
     fingerprint?: string;
   }): ElementReference {
+    const index = opts.index ?? 0;
+    // Finding the same element again hands back the reference already held for
+    // it, so the registry tracks what is on screen rather than every lookup.
+    const existing = this.findStored(opts.strategy, opts.selector, index);
+    if (existing !== undefined) {
+      if (opts.fingerprint !== undefined) existing.fingerprint = opts.fingerprint;
+      else delete existing.fingerprint;
+      return existing;
+    }
+
     const ref: ElementReference = {
-      id: nanoid(),
+      // 96 random bits: unguessable, and short enough not to bloat agent context.
+      id: randomBytes(12).toString('base64url'),
       selector: opts.selector,
       strategy: opts.strategy,
-      index: opts.index ?? 0,
-      foundAt: new Date().toISOString(),
-      sessionId: opts.sessionId,
+      index,
       ...(opts.fingerprint !== undefined && { fingerprint: opts.fingerprint }),
     };
     this.refs.set(ref.id, ref);
     return ref;
+  }
+
+  private findStored(
+    strategy: LocatorStrategy,
+    selector: string,
+    index: number,
+  ): ElementReference | undefined {
+    for (const ref of this.refs.values()) {
+      if (ref.strategy === strategy && ref.selector === selector && ref.index === index) {
+        return ref;
+      }
+    }
+    return undefined;
   }
 
   retrieve(id: string): ElementReference {
@@ -39,31 +60,21 @@ export class ElementRegistry {
     return ref;
   }
 
+  /**
+   * The match at `index`. One find-elements call answers both "does it exist"
+   * and "which one": a `$()` would need a second `isExisting()` round trip,
+   * since wdio re-queries the device for it.
+   */
   async findElement(
     strategy: LocatorStrategy,
     selector: string,
     sessionManager: SessionManager,
     index = 0,
   ): Promise<WebdriverIO.Element> {
-    const driver = sessionManager.getDriver();
-    const wdioSelector = toWdioSelector(strategy, selector);
-
-    try {
-      // Index 0 keeps the cheaper single-element path; only an explicitly
-      // ambiguous request pays for resolving the whole match list.
-      const element =
-        index === 0 ? driver.$(wdioSelector) : (await driver.$$(wdioSelector))[index];
-
-      if (element === undefined || !(await element.isExisting())) {
-        throw new ElementNotFoundError(strategy, selector);
-      }
-      // A lazy $() element is a thenable resolving to the element, which wdio's
-      // types do not express. Awaiting here keeps a failed fetch in this catch.
-      return await (element as unknown as WebdriverIO.Element);
-    } catch (err) {
-      if (err instanceof ElementNotFoundError) throw err;
-      throw new ElementNotFoundError(strategy, selector);
-    }
+    const matches = await this.findAll(strategy, selector, sessionManager);
+    const element = matches[index];
+    if (element === undefined) throw new ElementNotFoundError(strategy, selector);
+    return element;
   }
 
   /** Every element the selector currently matches — empty when none. */
@@ -75,19 +86,10 @@ export class ElementRegistry {
     const driver = sessionManager.getDriver();
     const wdioSelector = toWdioSelector(strategy, selector);
     try {
-      return Array.from(await driver.$$(wdioSelector));
+      return await findMatches(driver, wdioSelector);
     } catch {
       return [];
     }
-  }
-
-  /** Number of elements the selector currently matches — 0 when none. */
-  async countMatches(
-    strategy: LocatorStrategy,
-    selector: string,
-    sessionManager: SessionManager,
-  ): Promise<number> {
-    return (await this.findAll(strategy, selector, sessionManager)).length;
   }
 
   async retrieveElement(
@@ -103,15 +105,9 @@ export class ElementRegistry {
         return await rehydratePositional(ref, ref.fingerprint, driver, wdioSelector);
       }
 
-      const element =
-        ref.index === 0
-          ? driver.$(wdioSelector)
-          : (await driver.$$(wdioSelector))[ref.index];
-
-      if (element === undefined || !(await element.isExisting())) {
-        throw new StaleElementError(id, ref.selector);
-      }
-      return await (element as unknown as WebdriverIO.Element);
+      const element = (await findMatches(driver, wdioSelector))[ref.index];
+      if (element === undefined) throw new StaleElementError(id, ref.selector);
+      return element;
     } catch (err) {
       if (err instanceof StaleElementError) throw err;
       if (err instanceof ElementRefNotFoundError) throw err;
@@ -129,10 +125,26 @@ export class ElementRegistry {
 }
 
 /**
+ * Every element the selector matches now, as a plain array. Never index a
+ * `$$()` result directly: in webdriverio 10 it is a proxy, and reading past its
+ * end does not give `undefined` — it polls the device for up to five seconds
+ * and then hands back a "not found" element object. A plain copy makes a miss
+ * cheap and makes `[i] === undefined` mean what it says.
+ */
+export async function findMatches(
+  driver: Driver,
+  wdioSelector: string,
+): Promise<WebdriverIO.Element[]> {
+  return Array.from(await driver.$$(wdioSelector));
+}
+
+/**
  * A positional reference is only trusted while the element at its index still
- * carries the text it had when found. Otherwise the list has shifted: follow
- * the element to its new position when exactly one match carries that text,
- * and report it stale rather than act on whatever now sits at the old index.
+ * carries the fingerprint it had when found. Otherwise the list has shifted:
+ * follow the element to its new position when exactly one match carries the
+ * same text, and report it stale rather than act on whatever now sits at the
+ * old index. A rect fingerprint cannot be followed — another element can move
+ * into the same spot — so a mismatch there is always stale.
  */
 async function rehydratePositional(
   ref: ElementReference,
@@ -140,17 +152,21 @@ async function rehydratePositional(
   driver: Driver,
   wdioSelector: string,
 ): Promise<WebdriverIO.Element> {
-  const matches = Array.from(await driver.$$(wdioSelector));
+  const matches = await findMatches(driver, wdioSelector);
 
   const atIndex = matches[ref.index];
   if (atIndex !== undefined && (await fingerprintOf(atIndex)) === fingerprint) {
     return atIndex;
   }
 
+  if (isRectFingerprint(fingerprint)) {
+    throw new StaleElementError(ref.id, ref.selector);
+  }
+
   const moved: number[] = [];
   for (let i = 0; i < matches.length; i++) {
     if (i === ref.index) continue;
-    if ((await fingerprintOf(matches[i]!)) === fingerprint) moved.push(i);
+    if ((await textOf(matches[i]!)) === fingerprint) moved.push(i);
   }
 
   if (moved.length !== 1) {
@@ -160,12 +176,42 @@ async function rehydratePositional(
   return matches[ref.index]!;
 }
 
-/** The text that identifies an element among its matches; undefined if unreadable. */
-export async function fingerprintOf(element: {
+interface Fingerprintable {
   getText(): Promise<string>;
-}): Promise<string | undefined> {
+  getLocation(): Promise<{ x: number; y: number }>;
+  getSize(): Promise<{ width: number; height: number }>;
+}
+
+async function textOf(element: Pick<Fingerprintable, 'getText'>): Promise<string> {
   try {
     return await element.getText();
+  } catch {
+    return '';
+  }
+}
+
+/** Rect fingerprints use page-source's `@x,y WxH` notation. */
+function isRectFingerprint(fingerprint: string): boolean {
+  return fingerprint.startsWith('@');
+}
+
+/**
+ * What identifies an element among its matches: its text, or — for rows with
+ * none, such as icons — its on-screen rect. Text alone would give every
+ * textless row the same empty fingerprint, so any of them would pass for the
+ * stored one. Undefined when neither can be read.
+ */
+export async function fingerprintOf(
+  element: Fingerprintable,
+): Promise<string | undefined> {
+  const text = await textOf(element);
+  if (text !== '') return text;
+  try {
+    const [{ x, y }, { width, height }] = await Promise.all([
+      element.getLocation(),
+      element.getSize(),
+    ]);
+    return `@${x},${y} ${width}x${height}`;
   } catch {
     return undefined;
   }
