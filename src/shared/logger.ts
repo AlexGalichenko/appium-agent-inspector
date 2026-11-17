@@ -1,22 +1,13 @@
 import pino from 'pino';
 
+/**
+ * Plain JSON lines. The daemon runs detached with stdout redirected to its log
+ * file, where a pretty-printing worker thread only adds a dependency and can
+ * lose the final lines when the process is forced to exit. For a readable
+ * view, pipe the file through `npx pino-pretty`.
+ */
 export function createLogger(name: string) {
-  const level = process.env['LOG_LEVEL'] ?? 'info';
-  const isProd = process.env['NODE_ENV'] === 'production';
-
-  // The detached daemon has its stdout redirected to a log file, so only
-  // colorize when a human is actually watching a terminal.
-  if (isProd) {
-    return pino({ name, level });
-  }
-
-  return pino(
-    { name, level },
-    pino.transport({
-      target: 'pino-pretty',
-      options: { colorize: process.stdout.isTTY === true },
-    }),
-  );
+  return pino({ name, level: process.env['LOG_LEVEL'] ?? 'info' });
 }
 
 export type Logger = ReturnType<typeof createLogger>;

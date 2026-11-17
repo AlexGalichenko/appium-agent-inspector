@@ -16,6 +16,6 @@ export function registerGetAttribute(program: Command): void {
     const target = resolveTarget(opts);
     const client = await DaemonClient.fromDaemonState();
     const result = await client.getAttribute({ ...target, attribute: opts.attribute });
-    out.emit(result, () => console.log(`${result.attribute}: ${result.value}`));
+    out.emit(result, () => console.log(String(result.value)));
   });
 }

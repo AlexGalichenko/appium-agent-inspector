@@ -20,17 +20,13 @@ export function registerTakeScreenshot(program: Command): void {
       // Base64 PNGs run to megabytes. Printing one by default floods an
       // agent's context, so saving and reporting the path is the default.
       if (opts.base64) {
-        out.emit({ data: result.data, capturedAt: result.capturedAt }, () =>
-          console.log(result.data),
-        );
+        out.emit({ data: result.data }, () => console.log(result.data));
         return;
       }
 
       const path = opts.output ?? join(tmpdir(), `appium-screenshot-${Date.now()}.png`);
       await writeFile(path, Buffer.from(result.data, 'base64'));
 
-      out.emit({ path, capturedAt: result.capturedAt }, () =>
-        console.log(`Screenshot saved to ${path} (captured at ${result.capturedAt})`),
-      );
+      out.emit({ path }, () => console.log(`Screenshot saved to ${path}`));
     });
 }

@@ -11,8 +11,8 @@ export function registerTerminateApp(program: Command): void {
     .argument('<appId>', 'Bundle ID (iOS) or package name (Android)')
     .action(async (appId: string) => {
       const client = await DaemonClient.fromDaemonState();
-      const terminated = await client.terminateApp({ appId });
-      out.emit({ terminated, appId }, () =>
+      const { terminated } = await client.terminateApp({ appId });
+      out.emit({ terminated }, () =>
         console.log(terminated ? `Terminated ${appId}.` : `${appId} was not running.`),
       );
     });

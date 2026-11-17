@@ -12,13 +12,15 @@ export function registerSessionStatus(program: Command): void {
       const client = await DaemonClient.fromDaemonState();
       const status = await client.getSessionStatus();
 
-      out.emit(status, () => {
+      const data = status.active
+        ? { active: true, sessionId: status.sessionId, startedAt: status.startedAt }
+        : { active: false };
+      out.emit(data, () => {
         if (!status.active) {
           console.log('No active session. Run connect first.');
           return;
         }
-        console.log(`Active session: ${status.sessionId}`);
-        console.log(`Started at: ${status.startedAt}`);
+        console.log(`Active session: ${status.sessionId} (since ${status.startedAt})`);
       });
     });
 }

@@ -19,10 +19,9 @@ export function registerGetLocation(program: Command): void {
       x: Math.round(rect.x + rect.width / 2),
       y: Math.round(rect.y + rect.height / 2),
     };
-    out.emit({ ...rect, center }, () => {
-      console.log(`x: ${rect.x}, y: ${rect.y}`);
-      console.log(`width: ${rect.width}, height: ${rect.height}`);
-      console.log(`center: ${center.x},${center.y}`);
-    });
+    // Same `@centreX,centreY WxH` notation as `page-source --bounds`.
+    out.emit({ ...rect, center }, () =>
+      console.log(`@${center.x},${center.y} ${rect.width}x${rect.height}`),
+    );
   });
 }

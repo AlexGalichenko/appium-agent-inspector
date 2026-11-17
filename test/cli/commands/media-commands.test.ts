@@ -14,7 +14,6 @@ vi.mock('node:fs/promises', () => ({ writeFile: vi.fn() }));
 
 /** "hello" — short enough to assert on, real base64 so the decode is exercised. */
 const B64 = 'aGVsbG8=';
-const CAPTURED_AT = '2026-01-01T00:00:00.000Z';
 
 async function writeFileMock() {
   const { writeFile } = await import('node:fs/promises');
@@ -29,7 +28,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('take-screenshot', () => {
   beforeEach(() => {
-    useClient({ takeScreenshot: resolves({ data: B64, capturedAt: CAPTURED_AT }) });
+    useClient({ takeScreenshot: resolves({ data: B64 }) });
   });
 
   it('saves a decoded PNG rather than printing megabytes of base64', async () => {
@@ -65,7 +64,7 @@ describe('take-screenshot', () => {
       '--output',
       '/tmp/shot.png',
     ]);
-    expect(result).toEqual({ path: '/tmp/shot.png', capturedAt: CAPTURED_AT });
+    expect(result).toEqual({ path: '/tmp/shot.png' });
   });
 
   it('prints raw base64 and writes nothing with --base64', async () => {
@@ -79,7 +78,7 @@ describe('take-screenshot', () => {
 
   it('includes the payload under --json --base64', async () => {
     const result = await runJson(registerTakeScreenshot, ['take-screenshot', '--base64']);
-    expect(result).toEqual({ data: B64, capturedAt: CAPTURED_AT });
+    expect(result).toEqual({ data: B64 });
   });
 });
 
@@ -96,7 +95,7 @@ describe('video-start', () => {
 
 describe('video-stop', () => {
   beforeEach(() => {
-    useClient({ stopVideoRecording: resolves({ data: B64, stoppedAt: CAPTURED_AT }) });
+    useClient({ stopVideoRecording: resolves({ data: B64 }) });
   });
 
   it('saves the recording to a temp .mp4 by default', async () => {
@@ -121,7 +120,7 @@ describe('video-stop', () => {
 
   it('reports the saved path under --json', async () => {
     const result = await runJson(registerVideoStop, ['video-stop', '/tmp/clip.mp4']);
-    expect(result).toEqual({ path: '/tmp/clip.mp4', stoppedAt: CAPTURED_AT });
+    expect(result).toEqual({ path: '/tmp/clip.mp4' });
   });
 });
 
@@ -129,7 +128,7 @@ describe('page-source', () => {
   const XML = `<hierarchy><XCUIElementTypeButton name="Login" visible="true" x="0" y="0" width="100" height="40"/></hierarchy>`;
 
   beforeEach(() => {
-    useClient({ getPageSource: resolves({ source: XML, capturedAt: CAPTURED_AT }) });
+    useClient({ getPageSource: resolves({ source: XML }) });
   });
 
   it('renders the compact accessibility tree by default', async () => {
@@ -154,21 +153,18 @@ describe('page-source', () => {
       `<XCUIElementTypeButton name="Go" visible="true" x="300" y="${i * 40}" width="80" height="40"/>` +
       `</XCUIElementTypeCell>`;
     const list = `<hierarchy><XCUIElementTypeTable name="List" visible="true" x="0" y="0" width="390" height="844">${row(0)}${row(1)}${row(2)}</XCUIElementTypeTable></hierarchy>`;
-    useClient({ getPageSource: resolves({ source: list, capturedAt: CAPTURED_AT }) });
+    useClient({ getPageSource: resolves({ source: list }) });
 
     const collapsed = await runCommand(registerPageSource, ['page-source']);
-    expect(collapsed.join('\n')).toContain('same-shape siblings');
+    expect(collapsed.join('\n')).toContain('more like above');
 
     const full = await runCommand(registerPageSource, ['page-source', '--no-collapse']);
-    expect(full.join('\n')).not.toContain('same-shape siblings');
+    expect(full.join('\n')).not.toContain('more like above');
     expect(full.join('\n')).toContain('- cell "Row 2":');
   });
 
-  it('carries the rendered tree and capture time under --json', async () => {
-    const result = await runJson<{ tree: string; capturedAt: string }>(
-      registerPageSource,
-      ['page-source'],
-    );
-    expect(result).toEqual({ capturedAt: CAPTURED_AT, tree: '- button "Login"' });
+  it('carries the rendered tree under --json', async () => {
+    const result = await runJson<{ tree: string }>(registerPageSource, ['page-source']);
+    expect(result).toEqual({ tree: '- button "Login"' });
   });
 });

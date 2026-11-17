@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.6.0]
+
+### Added
+
+- **`connect` starts the daemon** when none is running, so a flow no longer begins with `daemon:start` (which still works, and is still a no-op when one is up).
+- **`--source` on `click`, `type`, `wait`, `scroll`, `perform-action` and `activate-app`** prints the resulting screen in the same call, saving a `page-source` round trip.
+- **`page-source --diff`** prints only the lines that changed since the last read, each under its nearest unchanged parent, or the full tree when most of the screen changed or the previous read used different options. The last screen is kept in `~/.appium-agent/last-screen.json`.
+- **`APPIUM_AGENT_IMPLICIT_WAIT_MS`** sets how long a lookup retries for a missing element.
+
+### Fixed
+
+- **`type` replaced the text on Android instead of appending.** UiAutomator2's send-keys is Android's `setText`. The daemon now reads the field and sends the existing text plus the new, treating a field that shows its hint as empty. A password field cannot be read back, so typing into one still replaces it.
+- **Scrolling to an element, and checking a stale reference, cost ~5 s per miss.** In webdriverio 10 a find-elements result is a proxy: reading past its end polls the device for up to `waitforTimeout` and returns a "not found" element instead of `undefined`. Every lookup now copies the result first. On Android, scroll-to-element went from ~9 s to ~2 s per swipe, and a reference to a gone element is `STALE_ELEMENT` at once rather than a fake element 5 s later.
+- **The visibility check asked Android for the iOS-only `visible` attribute** first, an error that costs ~1.6 s on UiAutomator2 every check.
+- **A session Appium refused was a 500.** It is now `SESSION_START_FAILED` (502) carrying Appium's reason.
+- **Controls under an iOS popover vanished from `page-source`.** iOS can report every control as invisible while they are plainly on screen (the Contacts delete confirmation); the tree showed only a dismiss region. When no control at all is reported visible, the tree now shows the elements whose frames are on screen, and says so on its first line.
+- **`scroll` did nothing while the keyboard was up.** Its swipe, centred on the screen, started on the keyboard. With a keyboard up it now swipes in the band between the top bars (the top fifth, where a swipe would drag a sheet or navigation bar) and the keyboard's top edge — exact on iOS, an assumed lower 40% on Android.
+- **A selector that the action itself invalidated gave a 500.** webdriverio re-finds an element by its selector when it re-renders mid-command; with `type --clear` on a `value == "…"` selector that re-find fails once the field is cleared. This is now `STALE_ELEMENT` with a hint to use a selector the action does not change.
+- **Rows inside a container reported as hidden were never collapsed** (Reminders' list is `visible="false"` on iOS 27), so a long list printed in full.
+- **Driver refusals were 500 `INTERNAL_ERROR`s.** Errors the driver raises for a command it cannot run (a missing ffmpeg, an unsupported command) are now `DRIVER_ERROR` (502) carrying the driver's own message, and are logged as warnings rather than "Unhandled error".
+- **The daemon log mixed plain-text lines into its JSON.** webdriverio's own logger is now silenced; the daemon already logs every failure itself.
+
+- **Ambiguous selectors failed under webdriverio 10.** Its `$()` became strict and throws when a selector matches more than one element, which broke `click`, `type`, `get-text`, `wait` and `scroll --to-*` on any list. Sessions now opt out (`strictSelectors: false`), so the first match is used and `--index` reaches the rest, as before.
+- **`page-source` could render a blank screen.** A node reported as hidden took its whole subtree with it, and XCUITest marks some full-screen containers `visible="false"` while everything inside them is visible — iOS 27 Settings rendered as just `- application "Settings"`. Hidden nodes now drop only themselves; each descendant is judged on its own visibility.
+- **A CLI newer than the running daemon got `Error [undefined]: undefined`.** Unknown routes now answer `ROUTE_NOT_FOUND` with a restart hint, and the CLI reports any reply outside the `{ ok, … }` envelope as `UNEXPECTED_RESPONSE` instead of crashing on it.
+- **Malformed or oversized request bodies returned 500 `INTERNAL_ERROR`.** Bad JSON is now a 400 `VALIDATION_ERROR`, and Fastify's other 4xx errors keep their status as `BAD_REQUEST`.
+- **Positional references to textless rows could act on the wrong element.** Icons and other rows without text all shared an empty fingerprint, so any of them passed for the stored one. They are now fingerprinted by on-screen rect, and a mismatch is reported as `STALE_ELEMENT`.
+
+### Changed
+
+- **The iOS keyboard is one line in `page-source`** — `keyboard [N keys]`, plus any Return/Search/Go/Done key — instead of a line per key (33 of 45 lines on the Contacts form). `--no-collapse` lists every key.
+- **Captions that repeat their row are dropped through wrappers.** A text leaf repeating its nearest named ancestor's name, label or value is dropped even with anonymous containers in between (`statictext "John Appleseed"` under `cell "John Appleseed"`).
+- **`page-source --diff` prints the full path of unchanged ancestors** above each change, outermost first.
+- **The implicit wait drops from 5 s to 2 s.** A lookup for a missing element now fails after 2 s instead of 5. Agents read the screen and `wait` for anything that loads, so a miss is usually a wrong selector; set `APPIUM_AGENT_IMPLICIT_WAIT_MS` to restore the old value.
+- **The skill calls `appium-agent` directly** instead of through `npx` (about 0.3 s per command), drops the `daemon:start` step, and has a much shorter description. It also documents the ~10 s iOS context listing and the capabilities that shorten it.
+- **Output no longer echoes what the caller sent.** Under `--json`: `click` and `type` drop `target`/`text`; `find-element` returns `{ elementId, index, matchCount }` (and `--all` elements as `{ elementId, index }`); `activate-app`, `terminate-app` and `install-app` drop the app id/path; `wait` returns `{ waitedMs }`; `scroll` drops `direction`; `get-attribute` drops `attribute`; `list-elements` drops `count`. `capturedAt`/`stoppedAt` timestamps are gone from `page-source`, `take-screenshot` and `video-stop`. `connect` and `session-status` no longer include the capabilities Appium echoes back, often kilobytes; `device-info` reports the useful parts.
+- **Terser human output.** `get-attribute` prints just the value, `wait` prints `OK after Nms.`, `get-location` prints `@centreX,centreY WxH` like `page-source --bounds`, and `session-status` fits on one line.
+- **Element references carry less.** `sessionId` and `foundAt` are gone (the registry is cleared whenever a session ends), and the internal fingerprint is no longer shown by `list-elements`.
+- **`page-source` is about 18% smaller.** The run header is shorter; a text or image line that only repeats its parent's name or label is dropped (its parent takes over the `--bounds` coordinates, which are the better tap target); consecutive identical single-line siblings print once with `×n`. `--no-collapse` still prints every line.
+- **Every element action makes one device lookup instead of two or three.** A locator now resolves with a single find-elements call; `$()` plus wdio's `isExisting()` re-queried the device.
+- **The bundled skill is about half the size** (~1,300 tokens, from ~2,500) with the same instructions. Re-run `appium-agent install --skill --force` to update an installed copy.
+- `find-element` makes one device lookup instead of two, getting existence, match count and the indexed match from a single find-elements call.
+- **Finding the same element again returns the reference already held for it** (same strategy, selector and index) rather than adding another, so `list-elements` stays bounded over long runs.
+- Element IDs are 16 characters instead of 21.
+- `--json` errors on stderr are compact when stderr is not a terminal, matching stdout.
+- The daemon log is plain JSON lines; pipe it through `npx pino-pretty` to read it. `NODE_ENV` no longer affects logging.
+- Upgraded to webdriverio 10. Dropped the `nanoid` and `pino-pretty` dependencies.
+
 ## [0.5.1]
 
 ### Fixed

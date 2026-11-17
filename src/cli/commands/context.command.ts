@@ -7,7 +7,11 @@ export function registerContext(program: Command): void {
 
   program
     .command('context')
-    .description('List native/webview contexts, or switch to one with --switch')
+    .description(
+      'List native/webview contexts, or switch to one with --switch. ' +
+        'On iOS this can take ~10 s in an app without web views; see the ' +
+        'webviewConnectTimeout / webviewConnectRetries capabilities.',
+    )
     .option('--switch <name>', 'Switch to this context (e.g. WEBVIEW_1, NATIVE_APP)')
     .action(async (opts: { switch?: string }) => {
       const client = await DaemonClient.fromDaemonState();
@@ -15,7 +19,7 @@ export function registerContext(program: Command): void {
       const result =
         opts.switch === undefined
           ? await client.getContexts()
-          : await client.switchContext(opts.switch);
+          : await client.switchContext({ name: opts.switch });
 
       out.emit(result, () => {
         for (const name of result.contexts) {

@@ -20,7 +20,7 @@ export function registerListElements(program: Command): void {
       }
 
       const { elements } = await client.listElements();
-      out.emit({ count: elements.length, elements }, () => {
+      out.emit({ elements }, () => {
         if (elements.length === 0) {
           console.log('No stored element references. Run find-element first.');
           return;
@@ -38,11 +38,4 @@ function printRef(ref: ElementReference): void {
   console.log(`Strategy: ${ref.strategy}`);
   console.log(`Selector: ${ref.selector}`);
   console.log(`Index: ${ref.index}`);
-  console.log(`Found at: ${ref.foundAt}`);
-  console.log(`Session: ${ref.sessionId}`);
-  // Only ambiguous selectors carry one, and its presence is what tells the
-  // caller the reference is positional and can go stale as a list scrolls.
-  if (ref.fingerprint !== undefined) {
-    console.log(`Fingerprint: "${ref.fingerprint}"`);
-  }
 }

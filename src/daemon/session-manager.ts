@@ -1,5 +1,6 @@
 import { remote } from 'webdriverio';
 import {
+  AppiumAgentError,
   ContextNotFoundError,
   SessionAlreadyActiveError,
   SessionNotActiveError,
@@ -169,7 +170,14 @@ export class SessionManager {
         port: server.port ?? defaultAppiumPort(protocol),
         path: server.path ?? APPIUM_DEFAULT_PATH,
         capabilities: req.capabilities as WebdriverIO.Capabilities,
-        logLevel: 'error' as const,
+        // The daemon logs every failure itself, as JSON. webdriverio's own logger
+        // would add plain-text lines to the same file.
+        logLevel: 'silent' as const,
+        // webdriverio 10 makes $() throw when a selector matches more than one
+        // element. Every ambiguous selector here means "the first match" (and
+        // --index reaches the rest), so a strict $() would break click, type,
+        // wait and scroll on any list.
+        strictSelectors: false,
       };
 
       this.logger.info(
@@ -177,7 +185,16 @@ export class SessionManager {
         'Starting Appium session',
       );
 
-      const driver = await remote(opts);
+      let driver: Driver;
+      try {
+        driver = await remote(opts);
+      } catch (err) {
+        // Appium refused the session (a driver missing or misconfigured, the
+        // device unreachable). webdriverio throws a plain Error for this, so
+        // without wrapping it the caller would see a bare 500.
+        const message = err instanceof Error ? err.message : String(err);
+        throw new AppiumAgentError('SESSION_START_FAILED', message, 502);
+      }
       try {
         await driver.setTimeout({ implicit: DEFAULT_IMPLICIT_TIMEOUT_MS });
       } catch (err) {
@@ -212,6 +229,7 @@ export class SessionManager {
 
     this.logger.info({ sessionId: this.sessionMeta?.sessionId }, 'Ending session');
 
+    // Stop beating first: a beat landing mid-delete would count as a failure.
     this.stopHeartbeat();
 
     try {
@@ -219,9 +237,7 @@ export class SessionManager {
     } catch (err) {
       this.logger.warn({ err }, 'Error while deleting session (may already be gone)');
     } finally {
-      this.driver = null;
-      this.sessionMeta = null;
-      this.onSessionLost?.();
+      this.discard();
     }
   }
 
@@ -284,7 +300,7 @@ export class SessionManager {
       driver.getContext(),
     ]);
     return {
-      current: normalizeContext(current),
+      current: contextName(current),
       contexts: (contexts as unknown[])
         .map(contextName)
         .filter((c): c is string => c !== null),
@@ -322,7 +338,7 @@ export class SessionManager {
       deviceName: asString(caps['deviceName'] ?? caps['appium:deviceName']),
       window: { width: window.width, height: window.height },
       orientation: asString(orientation),
-      context: normalizeContext(context),
+      context: contextName(context),
     };
   }
 }
@@ -332,10 +348,6 @@ function asString(value: unknown): string | null {
 }
 
 /** `getContext()` returns a string on most drivers but an object on some. */
-function normalizeContext(value: unknown): string | null {
-  return contextName(value);
-}
-
 function contextName(value: unknown): string | null {
   if (typeof value === 'string') return value;
   if (value !== null && typeof value === 'object' && 'id' in value) {

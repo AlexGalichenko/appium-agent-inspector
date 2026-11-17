@@ -58,7 +58,7 @@ export class DaemonNotRunningError extends AppiumAgentError {
   constructor() {
     super(
       'DAEMON_NOT_RUNNING',
-      'Daemon is not running. Start it with: appium-agent daemon:start',
+      'Daemon is not running. Run connect, which starts it.',
       503,
     );
   }

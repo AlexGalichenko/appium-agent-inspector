@@ -1,56 +1,36 @@
 import type { FastifyInstance } from 'fastify';
-import {
-  StartSessionRequestSchema,
-  SwitchContextRequestSchema,
-} from '../../shared/types.js';
-import { parseBody } from './helpers.js';
+import { ROUTES } from '../../shared/routes.js';
+import { on } from './helpers.js';
 import type { RouteDeps } from './helpers.js';
 
 export async function sessionRoutes(
   fastify: FastifyInstance,
-  deps: RouteDeps,
+  { sessionManager }: RouteDeps,
 ): Promise<void> {
-  const { sessionManager, elementRegistry } = deps;
-
-  // POST /session - connect
-  fastify.post('/session', async (request, reply) => {
-    const body = parseBody(StartSessionRequestSchema, request.body);
-    const result = await sessionManager.startSession(body);
-    return reply.status(201).send({ ok: true, data: result });
+  on(fastify, ROUTES.startSession, async (body, _request, reply) => {
+    reply.status(201);
+    return sessionManager.startSession(body);
   });
 
-  // DELETE /session - end the session
-  fastify.delete('/session', async (_request, reply) => {
+  // Ending the session fires the session-lost handler, which drops the element
+  // references along with it.
+  on(fastify, ROUTES.endSession, async () => {
     await sessionManager.endSession();
-    elementRegistry.invalidateAll();
-    return reply.send({ ok: true, data: { message: 'Session closed' } });
+    return { message: 'Session closed' };
   });
 
-  // GET /session - check session status
-  fastify.get('/session', async (_request, reply) => {
+  on(fastify, ROUTES.getSessionStatus, async () => {
     const meta = sessionManager.getSessionMeta();
-    if (meta === null) {
-      return reply.send({ ok: true, data: { active: false } });
-    }
-    return reply.send({ ok: true, data: { active: true, ...meta } });
+    return meta === null
+      ? { active: false as const }
+      : { active: true as const, ...meta };
   });
 
-  // GET /session/contexts - list native / webview contexts
-  fastify.get('/session/contexts', async (_request, reply) => {
-    const data = await sessionManager.getContexts();
-    return reply.send({ ok: true, data });
-  });
+  on(fastify, ROUTES.getContexts, async () => sessionManager.getContexts());
 
-  // POST /session/context - switch context
-  fastify.post('/session/context', async (request, reply) => {
-    const { name } = parseBody(SwitchContextRequestSchema, request.body);
-    const data = await sessionManager.switchContext(name);
-    return reply.send({ ok: true, data });
-  });
+  on(fastify, ROUTES.switchContext, async ({ name }) =>
+    sessionManager.switchContext(name),
+  );
 
-  // GET /session/device - screen size, orientation, platform
-  fastify.get('/session/device', async (_request, reply) => {
-    const data = await sessionManager.getDeviceInfo();
-    return reply.send({ ok: true, data });
-  });
+  on(fastify, ROUTES.getDeviceInfo, async () => sessionManager.getDeviceInfo());
 }

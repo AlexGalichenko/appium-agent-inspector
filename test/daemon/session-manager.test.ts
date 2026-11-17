@@ -110,6 +110,38 @@ describe('SessionManager', () => {
       );
     });
 
+    it("silences webdriverio's own logger, which would break the JSON log", async () => {
+      const { remote } = await import('webdriverio');
+      await manager.startSession(validRequest);
+      expect(remote).toHaveBeenCalledWith(
+        expect.objectContaining({ logLevel: 'silent' }),
+      );
+    });
+
+    it('turns off strict selectors so $() takes the first of several matches', async () => {
+      const { remote } = await import('webdriverio');
+      await manager.startSession(validRequest);
+      expect(remote).toHaveBeenCalledWith(
+        expect.objectContaining({ strictSelectors: false }),
+      );
+    });
+
+    it('reports a session Appium refused as SESSION_START_FAILED with its reason', async () => {
+      const { remote } = await import('webdriverio');
+      vi.mocked(remote).mockRejectedValueOnce(
+        new Error("WebDriverError: Cannot start the 'io.appium.settings' application."),
+      );
+      await expect(manager.startSession(validRequest)).rejects.toMatchObject({
+        code: 'SESSION_START_FAILED',
+        httpStatus: 502,
+        message: expect.stringContaining('io.appium.settings'),
+      });
+      // A failed start must not leave the manager thinking one is in progress.
+      await expect(manager.startSession(validRequest)).resolves.toHaveProperty(
+        'sessionId',
+      );
+    });
+
     it('defaults to http on the Appium port', async () => {
       const { remote } = await import('webdriverio');
       await manager.startSession(validRequest);

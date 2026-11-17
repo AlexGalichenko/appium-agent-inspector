@@ -1,13 +1,14 @@
 import type { Command } from 'commander';
 import { DaemonClient } from '../daemon-client.js';
 import { makeOutput } from '../output.js';
+import { addSourceOption, printScreen, screenAfter } from '../screen.js';
 import { ValidationError } from '../../shared/errors.js';
+import type { PerformActionInput } from '../../shared/types.js';
 
 export function registerPerformAction(program: Command): void {
   const out = makeOutput(program);
 
-  program
-    .command('perform-action')
+  addSourceOption(program.command('perform-action'))
     .description(
       'Perform a touch gesture or raw W3C actions sequence.\n' +
         '  High-level gestures (JSON object):\n' +
@@ -18,7 +19,7 @@ export function registerPerformAction(program: Command): void {
         '    [{"type":"pointer","id":"f1","parameters":{"pointerType":"touch"},"actions":[...]}]',
     )
     .argument('<json>', 'JSON gesture object or W3C actions array')
-    .action(async (json: string) => {
+    .action(async (json: string, opts: { source: boolean }) => {
       let parsed: unknown;
       try {
         parsed = JSON.parse(json);
@@ -27,7 +28,12 @@ export function registerPerformAction(program: Command): void {
       }
 
       const client = await DaemonClient.fromDaemonState();
-      const result = await client.performAction(parsed);
-      out.emit(result, () => console.log(result.message));
+      // Only the JSON syntax is checked here; the daemon validates the shape.
+      const result = await client.performAction(parsed as PerformActionInput);
+      const screen = await screenAfter(client, opts);
+      out.emit({ ...result, ...screen }, () => {
+        console.log(result.message);
+        printScreen(screen);
+      });
     });
 }

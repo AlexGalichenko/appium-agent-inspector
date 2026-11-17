@@ -75,7 +75,7 @@ describe('DaemonNotRunningError', () => {
   it('has correct code and message', () => {
     const err = new DaemonNotRunningError();
     expect(err.code).toBe('DAEMON_NOT_RUNNING');
-    expect(err.message).toMatch(/daemon:start/i);
+    expect(err.message).toMatch(/connect/i);
     expect(err).toBeInstanceOf(AppiumAgentError);
   });
 });

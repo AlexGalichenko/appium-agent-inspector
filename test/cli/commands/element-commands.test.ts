@@ -32,6 +32,19 @@ describe('click', () => {
     expect(firstArg(click)).toEqual({ elementId: 'el-1' });
   });
 
+  it('prints the resulting screen with --source, in the same call', async () => {
+    const getPageSource = resolves({
+      source: '<AppiumAUT><XCUIElementTypeButton name="Next"/></AppiumAUT>',
+    });
+    useClient({ click, getPageSource });
+    const lines = await runCommand(registerClick, ['click', ...BY_ID, '--source']);
+    expect(lines).toEqual(['Clicked.', '- button "Next"']);
+    expect(await runJson(registerClick, ['click', ...BY_ID, '--source'])).toEqual({
+      clicked: true,
+      tree: '- button "Next"',
+    });
+  });
+
   it('sends a locator with the default index', async () => {
     await runCommand(registerClick, ['click', ...BY_LOCATOR]);
     expect(firstArg(click)).toEqual({
@@ -50,11 +63,8 @@ describe('click', () => {
     expect(await runCommand(registerClick, ['click', ...BY_ID])).toEqual(['Clicked.']);
   });
 
-  it('reports the target it acted on under --json', async () => {
-    expect(await runJson(registerClick, ['click', ...BY_ID])).toEqual({
-      clicked: true,
-      target: { elementId: 'el-1' },
-    });
+  it('confirms under --json without echoing the target back', async () => {
+    expect(await runJson(registerClick, ['click', ...BY_ID])).toEqual({ clicked: true });
   });
 
   it('rejects a locator missing its selector before contacting the daemon', async () => {
@@ -153,26 +163,26 @@ describe('get-attribute', () => {
     });
   });
 
-  it('prints name and value', async () => {
-    useClient({ getAttribute: resolves({ attribute: 'enabled', value: 'true' }) });
+  it('prints just the value', async () => {
+    useClient({ getAttribute: resolves({ value: 'true' }) });
     const lines = await runCommand(registerGetAttribute, [
       'get-attribute',
       ...BY_ID,
       '--attribute',
       'enabled',
     ]);
-    expect(lines).toEqual(['enabled: true']);
+    expect(lines).toEqual(['true']);
   });
 
   it('renders a null value without crashing', async () => {
-    useClient({ getAttribute: resolves({ attribute: 'hint', value: null }) });
+    useClient({ getAttribute: resolves({ value: null }) });
     const lines = await runCommand(registerGetAttribute, [
       'get-attribute',
       ...BY_ID,
       '--attribute',
       'hint',
     ]);
-    expect(lines).toEqual(['hint: null']);
+    expect(lines).toEqual(['null']);
   });
 
   it('requires --attribute', async () => {
@@ -205,12 +215,10 @@ describe('get-location', () => {
     expect(result.center).toEqual({ x: 51, y: 51 });
   });
 
-  it('prints position, size and centre', async () => {
+  it('prints centre and size in page-source --bounds notation', async () => {
     useClient({ getElementLocation: resolves(rect) });
     expect(await runCommand(registerGetLocation, ['get-location', ...BY_ID])).toEqual([
-      'x: 10, y: 20',
-      'width: 100, height: 50',
-      'center: 60,45',
+      '@60,45 100x50',
     ]);
   });
 });
@@ -218,16 +226,13 @@ describe('get-location', () => {
 describe('find-element', () => {
   const found = {
     elementId: 'el-9',
-    selector: 'Login',
-    strategy: 'accessibility id',
     index: 0,
-    foundAt: '2026-01-01T00:00:00.000Z',
     matchCount: 1,
   };
 
   it('sends the parsed locator to the single-element endpoint', async () => {
     const findElement = resolves(found);
-    useClient({ findElement, findElements: resolves() });
+    useClient({ findElement });
 
     await runCommand(registerFindElement, ['find-element', ...BY_LOCATOR]);
 
@@ -240,19 +245,19 @@ describe('find-element', () => {
   });
 
   it('stays quiet about ambiguity when the selector is unique', async () => {
-    useClient({ findElement: resolves(found), findElements: resolves() });
+    useClient({ findElement: resolves(found) });
     const lines = await runCommand(registerFindElement, ['find-element', ...BY_LOCATOR]);
     expect(lines.join('\n')).not.toMatch(/Note:/);
   });
 
   it('prints only the ID, not a restatement of the locator just passed in', async () => {
-    useClient({ findElement: resolves(found), findElements: resolves() });
+    useClient({ findElement: resolves(found) });
     const lines = await runCommand(registerFindElement, ['find-element', ...BY_LOCATOR]);
     expect(lines).toEqual(['ID: el-9']);
   });
 
   it('still carries the full record under --json', async () => {
-    useClient({ findElement: resolves(found), findElements: resolves() });
+    useClient({ findElement: resolves(found) });
     const result = await runJson(registerFindElement, ['find-element', ...BY_LOCATOR]);
     expect(result).toEqual(found);
   });
@@ -260,22 +265,20 @@ describe('find-element', () => {
   it('warns which index it stored when the selector is ambiguous', async () => {
     useClient({
       findElement: resolves({ ...found, matchCount: 4 }),
-      findElements: resolves(),
     });
     const lines = await runCommand(registerFindElement, ['find-element', ...BY_LOCATOR]);
     expect(lines.join('\n')).toMatch(/matches 4 elements; stored index 0/);
   });
 
-  it('switches to the batch endpoint for --all', async () => {
-    const findElements = resolves({
+  it('asks for every match with --all', async () => {
+    const findElement = resolves({
       matchCount: 2,
       elements: [
         { ...found, elementId: 'a', index: 0, matchCount: 2 },
         { ...found, elementId: 'b', index: 1, matchCount: 2 },
       ],
     });
-    const findElement = resolves(found);
-    useClient({ findElement, findElements });
+    useClient({ findElement });
 
     const lines = await runCommand(registerFindElement, [
       'find-element',
@@ -283,8 +286,8 @@ describe('find-element', () => {
       '--all',
     ]);
 
-    expect(findElement).not.toHaveBeenCalled();
-    expect(firstArg(findElements).all).toBe(true);
+    expect(findElement).toHaveBeenCalledTimes(1);
+    expect(firstArg(findElement).all).toBe(true);
     expect(lines).toEqual(['2 element(s) found:', '  [0] ID: a', '  [1] ID: b']);
   });
 
@@ -302,8 +305,6 @@ describe('list-elements', () => {
     selector: 'Login',
     strategy: 'accessibility id' as const,
     index: 0,
-    foundAt: '2026-01-01T00:00:00.000Z',
-    sessionId: 'sess-1',
   };
 
   it('lists every stored reference', async () => {
@@ -321,10 +322,9 @@ describe('list-elements', () => {
     expect(lines.join('\n')).toMatch(/No stored element references.*find-element/);
   });
 
-  it('reports the count alongside the rows under --json', async () => {
+  it('reports the rows under --json', async () => {
     useClient({ listElements: resolves({ elements: [ref] }), getElement: resolves() });
     expect(await runJson(registerListElements, ['list-elements'])).toEqual({
-      count: 1,
       elements: [ref],
     });
   });
@@ -338,27 +338,19 @@ describe('list-elements', () => {
     expect(getElement).toHaveBeenCalledWith('el-1');
   });
 
-  it('omits the fingerprint line for a unique reference', async () => {
+  it('prints one reference without daemon bookkeeping', async () => {
     useClient({ listElements: resolves(), getElement: resolves(ref) });
     const lines = await runCommand(registerListElements, [
       'list-elements',
       '--id',
       'el-1',
     ]);
-    expect(lines.join('\n')).not.toMatch(/Fingerprint/);
-  });
-
-  it('shows the fingerprint that marks a positional reference', async () => {
-    useClient({
-      listElements: resolves(),
-      getElement: resolves({ ...ref, index: 2, fingerprint: 'Row 3' }),
-    });
-    const lines = await runCommand(registerListElements, [
-      'list-elements',
-      '--id',
-      'el-1',
+    expect(lines).toEqual([
+      'ID: el-1',
+      'Strategy: accessibility id',
+      'Selector: Login',
+      'Index: 0',
     ]);
-    expect(lines).toContain('Fingerprint: "Row 3"');
   });
 });
 
@@ -366,11 +358,7 @@ describe('wait', () => {
   let waitForElement: ReturnType<typeof resolves>;
 
   beforeEach(() => {
-    waitForElement = resolves({
-      condition: 'displayed',
-      selector: 'Login',
-      waitedMs: 120,
-    });
+    waitForElement = resolves({ waitedMs: 120 });
     useClient({ waitForElement });
   });
 
@@ -415,6 +403,6 @@ describe('wait', () => {
 
   it('reports how long it actually waited', async () => {
     const lines = await runCommand(registerWait, ['wait', ...BY_LOCATOR]);
-    expect(lines).toEqual(['"Login" is displayed (after 120ms).']);
+    expect(lines).toEqual(['OK after 120ms.']);
   });
 });

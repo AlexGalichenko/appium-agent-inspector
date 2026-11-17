@@ -14,6 +14,6 @@ export function registerInstallApp(program: Command): void {
       const appPath = resolveLocalPath(rawPath);
       const client = await DaemonClient.fromDaemonState();
       await client.installApp({ appPath });
-      out.emit({ installed: true, appPath }, () => console.log(`Installed ${appPath}.`));
+      out.emit({ installed: true }, () => console.log(`Installed ${appPath}.`));
     });
 }

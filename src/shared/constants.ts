@@ -74,13 +74,27 @@ export function defaultAppiumPort(protocol: AppiumProtocol): number {
 }
 export const APPIUM_DEFAULT_PATH = '/';
 
-export const DEFAULT_IMPLICIT_TIMEOUT_MS = 5000;
+/**
+ * How long a lookup keeps retrying for an element that is not there yet. Agents
+ * read the screen before acting and use `wait` for anything that loads, so a
+ * miss is usually a wrong selector, and every miss costs this long. Short, but
+ * not zero: an action fired straight after a navigation still gets some slack.
+ */
+export const DEFAULT_IMPLICIT_TIMEOUT_MS = envInteger(
+  ['APPIUM_AGENT_IMPLICIT_WAIT_MS'],
+  2000,
+  { min: 0, max: 60_000 },
+);
 export const DEFAULT_WAIT_TIMEOUT_MS = 10_000;
 
 export const DEFAULT_SCROLL_MAX_SWIPES = 10;
 export const DEFAULT_SCROLL_DURATION_MS = 600;
-/** Per-swipe allowance for the visibility check that follows each swipe. */
-export const SCROLL_CHECK_ALLOWANCE_MS = 3000;
+/**
+ * Per-swipe allowance for the swipe's own settling and the visibility check
+ * that follows it. UiAutomator2 waits for the UI to go idle before each lookup,
+ * which measured 1-2 s after a swipe on an emulator.
+ */
+export const SCROLL_CHECK_ALLOWANCE_MS = 5000;
 
 /**
  * An agent that walks away leaves its session holding the device forever: the

@@ -50,6 +50,14 @@ const MOCK_ACTION_CHAIN = {
   perform: vi.fn().mockResolvedValue(undefined),
 };
 
+const VISIBLE_ELEMENT = {
+  isDisplayed: vi.fn().mockResolvedValue(true),
+  getAttribute: vi.fn().mockResolvedValue('true'),
+  waitForExist: vi.fn().mockResolvedValue(true),
+  waitForDisplayed: vi.fn().mockResolvedValue(true),
+  waitForEnabled: vi.fn().mockResolvedValue(true),
+};
+
 function makeSessionManager(
   overrides: Partial<Record<keyof SessionManager, unknown>> = {},
 ) {
@@ -57,6 +65,7 @@ function makeSessionManager(
     startSession: vi.fn().mockResolvedValue(SESSION_META),
     endSession: vi.fn().mockResolvedValue(undefined),
     getDriver: vi.fn().mockReturnValue({
+      sessionId: 'sess-1',
       getPageSource: vi.fn().mockResolvedValue('<xml/>'),
       takeScreenshot: vi.fn().mockResolvedValue('base64png=='),
       activateApp: vi.fn().mockResolvedValue(undefined),
@@ -68,14 +77,9 @@ function makeSessionManager(
       action: vi.fn().mockReturnValue(MOCK_ACTION_CHAIN),
       installApp: vi.fn().mockResolvedValue(undefined),
       getWindowSize: vi.fn().mockResolvedValue({ width: 400, height: 800 }),
-      $: vi.fn().mockReturnValue({
-        isExisting: vi.fn().mockResolvedValue(true),
-        isDisplayed: vi.fn().mockResolvedValue(true),
-        getAttribute: vi.fn().mockResolvedValue('true'),
-        waitForExist: vi.fn().mockResolvedValue(true),
-        waitForDisplayed: vi.fn().mockResolvedValue(true),
-        waitForEnabled: vi.fn().mockResolvedValue(true),
-      }),
+      isKeyboardShown: vi.fn().mockResolvedValue(false),
+      $: vi.fn().mockReturnValue(VISIBLE_ELEMENT),
+      $$: vi.fn().mockResolvedValue([VISIBLE_ELEMENT]),
     }),
     getContexts: vi.fn().mockResolvedValue({
       current: 'NATIVE_APP',
@@ -98,6 +102,7 @@ function makeSessionManager(
     getSessionId: vi.fn().mockReturnValue('sess-1'),
     touch: vi.fn(),
     markSessionLost: vi.fn(),
+    setSessionLostHandler: vi.fn(),
     // Like the real manager, hands the callback whatever driver is current.
     withoutImplicitWait: vi.fn(async (fn: (driver: unknown) => Promise<unknown>) =>
       fn(manager.getDriver()),
@@ -112,7 +117,6 @@ function makeElementRegistry(overrides: Partial<Record<string, unknown>> = {}) {
     store: vi.fn().mockReturnValue(ELEMENT_REF),
     retrieve: vi.fn().mockReturnValue(ELEMENT_REF),
     findElement: vi.fn().mockResolvedValue(MOCK_ELEMENT),
-    countMatches: vi.fn().mockResolvedValue(1),
     findAll: vi.fn().mockResolvedValue([MOCK_ELEMENT]),
     retrieveElement: vi.fn().mockResolvedValue(MOCK_ELEMENT),
     invalidateAll: vi.fn(),
@@ -250,9 +254,16 @@ describe('buildServer', () => {
   });
 
   describe('DELETE /session', () => {
-    it('returns 200 and invalidates element registry', async () => {
+    it('returns 200 after ending the session', async () => {
       const res = await server.inject({ method: 'DELETE', url: '/session' });
       expect(res.statusCode).toBe(200);
+      expect(sessionManager.endSession).toHaveBeenCalled();
+    });
+
+    it('clears element references whenever the session is lost', () => {
+      const handler = vi.mocked(sessionManager.setSessionLostHandler).mock.calls[0]?.[0];
+      expect(handler).toBeTypeOf('function');
+      handler?.();
       expect(elementRegistry.invalidateAll).toHaveBeenCalled();
     });
 
@@ -307,9 +318,7 @@ describe('buildServer', () => {
     });
 
     it('returns 404 when element not found', async () => {
-      vi.mocked(elementRegistry.findElement).mockRejectedValueOnce(
-        new ElementNotFoundError('accessibility id', '~Missing'),
-      );
+      vi.mocked(elementRegistry.findAll).mockResolvedValueOnce([]);
       const res = await server.inject({
         method: 'POST',
         url: '/elements/find',
@@ -319,8 +328,7 @@ describe('buildServer', () => {
     });
 
     it('returns 409 when no session is active', async () => {
-      vi.mocked(sessionManager.getSessionId).mockReturnValueOnce(null);
-      vi.mocked(elementRegistry.findElement).mockRejectedValueOnce(
+      vi.mocked(elementRegistry.findAll).mockRejectedValueOnce(
         new SessionNotActiveError(),
       );
       const res = await server.inject({
@@ -418,6 +426,53 @@ describe('buildServer', () => {
       expect(MOCK_ELEMENT.clearValue).not.toHaveBeenCalled();
     });
 
+    describe('on Android, where send-keys replaces the text', () => {
+      afterEach(() => {
+        vi.mocked(MOCK_ELEMENT.getAttribute).mockReset().mockResolvedValue('1');
+      });
+
+      const androidField = (attrs: Record<string, string>) => {
+        const driver = vi.mocked(sessionManager.getDriver)();
+        vi.mocked(sessionManager.getDriver).mockReturnValue({
+          ...driver,
+          isAndroid: true,
+        } as never);
+        vi.mocked(MOCK_ELEMENT.getAttribute).mockImplementation(
+          async (name: string) => attrs[name] ?? null,
+        );
+      };
+
+      it('appends by sending the existing text plus the new', async () => {
+        androidField({ text: 'Wi', 'showing-hint': 'false', password: 'false' });
+        await server.inject({
+          method: 'POST',
+          url: '/actions/type',
+          payload: { elementId: 'ref-1', text: 'Fi' },
+        });
+        expect(MOCK_ELEMENT.addValue).toHaveBeenCalledWith('WiFi');
+      });
+
+      it('does not prepend the hint an empty field reports as its text', async () => {
+        androidField({ text: 'Search settings', 'showing-hint': 'true' });
+        await server.inject({
+          method: 'POST',
+          url: '/actions/type',
+          payload: { elementId: 'ref-1', text: 'Wi' },
+        });
+        expect(MOCK_ELEMENT.addValue).toHaveBeenCalledWith('Wi');
+      });
+
+      it('cannot read a password field back, so it types as-is', async () => {
+        androidField({ text: '••', password: 'true' });
+        await server.inject({
+          method: 'POST',
+          url: '/actions/type',
+          payload: { elementId: 'ref-1', text: 'pw' },
+        });
+        expect(MOCK_ELEMENT.addValue).toHaveBeenCalledWith('pw');
+      });
+    });
+
     it('replaces the contents when clearFirst is true', async () => {
       const res = await server.inject({
         method: 'POST',
@@ -447,8 +502,7 @@ describe('buildServer', () => {
       const res = await server.inject({ method: 'GET', url: '/actions/page-source' });
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
-      expect(body.data.source).toBe('<xml/>');
-      expect(body.data.capturedAt).toBeTruthy();
+      expect(body.data).toEqual({ source: '<xml/>' });
     });
 
     it('returns 409 when no session', async () => {
@@ -461,12 +515,11 @@ describe('buildServer', () => {
   });
 
   describe('GET /actions/screenshot', () => {
-    it('returns base64 screenshot data and capturedAt', async () => {
+    it('returns base64 screenshot data', async () => {
       const res = await server.inject({ method: 'GET', url: '/actions/screenshot' });
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
-      expect(body.data.data).toBe('base64png==');
-      expect(body.data.capturedAt).toBeTruthy();
+      expect(body.data).toEqual({ data: 'base64png==' });
     });
 
     it('returns 409 when no session is active', async () => {
@@ -592,8 +645,7 @@ describe('buildServer', () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body);
       expect(body.ok).toBe(true);
-      expect(body.data.attribute).toBe('value');
-      expect(body.data.value).toBe('1');
+      expect(body.data).toEqual({ value: '1' });
       expect(MOCK_ELEMENT.getAttribute).toHaveBeenCalledWith('value');
     });
 
@@ -876,6 +928,55 @@ describe('buildServer', () => {
       expect(sessionManager.markSessionLost).not.toHaveBeenCalled();
     });
 
+    it('answers an unknown route with our envelope, pointing at a version mismatch', async () => {
+      const res = await server.inject({ method: 'POST', url: '/actions/teleport' });
+      expect(res.statusCode).toBe(404);
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(false);
+      expect(body.error.code).toBe('ROUTE_NOT_FOUND');
+      expect(body.error.message).toMatch(/POST \/actions\/teleport.*daemon:kill/);
+    });
+
+    it('rejects a malformed JSON body as a 400, not a 500', async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/click',
+        headers: { 'content-type': 'application/json' },
+        payload: '{not json',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it("passes Fastify's own 4xx errors through with their status", async () => {
+      const res = await server.inject({
+        method: 'POST',
+        url: '/actions/click',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ elementId: 'x'.repeat(1_100_000) }),
+      });
+      expect(res.statusCode).toBe(413);
+      expect(JSON.parse(res.body).error.code).toBe('BAD_REQUEST');
+    });
+
+    it('reports a driver refusal as 502 DRIVER_ERROR, logged as a warning', async () => {
+      const driver = vi.mocked(sessionManager.getDriver)();
+      vi.mocked(
+        driver.startRecordingScreen as unknown as () => Promise<void>,
+      ).mockRejectedValueOnce(webDriverError('WebDriverError', 'install ffmpeg'));
+
+      const res = await server.inject({ method: 'POST', url: '/actions/video-start' });
+
+      expect(res.statusCode).toBe(502);
+      expect(JSON.parse(res.body).error).toEqual({
+        code: 'DRIVER_ERROR',
+        message: 'install ffmpeg',
+      });
+      const log = mockLogger as unknown as Record<'warn' | 'error', unknown>;
+      expect(log.warn).toHaveBeenCalled();
+      expect(log.error).not.toHaveBeenCalled();
+    });
+
     it('discards the session when Appium reports it no longer exists', async () => {
       const driver = vi.mocked(sessionManager.getDriver)();
       vi.mocked(
@@ -1000,7 +1101,7 @@ describe('buildServer', () => {
       const res = await server.inject({ method: 'POST', url: '/actions/video-start' });
       expect(res.statusCode).toBe(200);
       expect(driver.startRecordingScreen).toHaveBeenCalled();
-      expect(JSON.parse(res.body).data.startedAt).toBeTruthy();
+      expect(JSON.parse(res.body).data).toEqual({ message: 'Recording started' });
     });
 
     it('POST /actions/video-stop returns the encoded recording', async () => {
@@ -1041,7 +1142,6 @@ describe('buildServer', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body).data).toEqual({
-        direction: 'down',
         swipes: 1,
         found: null,
       });
@@ -1066,11 +1166,7 @@ describe('buildServer', () => {
     it('gives up after maxSwipes when the element never appears', async () => {
       vi.mocked(sessionManager.getDriver).mockReturnValue({
         ...vi.mocked(sessionManager.getDriver)(),
-        $: vi.fn().mockReturnValue({
-          isExisting: vi.fn().mockResolvedValue(false),
-          isDisplayed: vi.fn().mockResolvedValue(false),
-          getAttribute: vi.fn().mockResolvedValue('false'),
-        }),
+        $$: vi.fn().mockResolvedValue([]),
       } as never);
 
       const res = await server.inject({
@@ -1111,7 +1207,7 @@ describe('buildServer', () => {
         },
       });
       expect(res.statusCode).toBe(200);
-      expect(JSON.parse(res.body).data.condition).toBe('displayed');
+      expect(JSON.parse(res.body).data).toEqual({ waitedMs: expect.any(Number) });
       expect(sessionManager.withoutImplicitWait).toHaveBeenCalled();
     });
 
@@ -1188,7 +1284,9 @@ describe('buildServer', () => {
 
   describe('POST /elements/find with ambiguous selectors', () => {
     it('reports how many elements the selector matched', async () => {
-      vi.mocked(elementRegistry.countMatches).mockResolvedValueOnce(4);
+      vi.mocked(elementRegistry.findAll).mockResolvedValueOnce(
+        Array.from({ length: 4 }, () => MOCK_ELEMENT) as never,
+      );
       const res = await server.inject({
         method: 'POST',
         url: '/elements/find',
@@ -1217,7 +1315,9 @@ describe('buildServer', () => {
     });
 
     it('fingerprints a single reference when its selector is ambiguous', async () => {
-      vi.mocked(elementRegistry.countMatches).mockResolvedValueOnce(2);
+      vi.mocked(elementRegistry.findAll).mockResolvedValueOnce(
+        Array.from({ length: 2 }, () => MOCK_ELEMENT) as never,
+      );
       await server.inject({
         method: 'POST',
         url: '/elements/find',
@@ -1239,18 +1339,33 @@ describe('buildServer', () => {
       );
     });
 
-    it('passes the requested index through to the lookup', async () => {
-      await server.inject({
+    it('stores the match at the requested index from a single lookup', async () => {
+      const cells = ['Alpha', 'Beta', 'Gamma'].map((text) => ({
+        getText: vi.fn().mockResolvedValue(text),
+      }));
+      vi.mocked(elementRegistry.findAll).mockResolvedValueOnce(cells as never);
+      const res = await server.inject({
         method: 'POST',
         url: '/elements/find',
         payload: { strategy: 'class name', selector: 'XCUIElementTypeCell', index: 2 },
       });
-      expect(elementRegistry.findElement).toHaveBeenCalledWith(
-        'class name',
-        'XCUIElementTypeCell',
-        sessionManager,
-        2,
+      expect(res.statusCode).toBe(201);
+      expect(elementRegistry.findAll).toHaveBeenCalledTimes(1);
+      expect(elementRegistry.findElement).not.toHaveBeenCalled();
+      expect(elementRegistry.store).toHaveBeenCalledWith(
+        expect.objectContaining({ index: 2, fingerprint: 'Gamma' }),
       );
+    });
+
+    it('returns 404 when the requested index is past the last match', async () => {
+      vi.mocked(elementRegistry.findAll).mockResolvedValueOnce([MOCK_ELEMENT] as never);
+      const res = await server.inject({
+        method: 'POST',
+        url: '/elements/find',
+        payload: { strategy: 'class name', selector: 'XCUIElementTypeCell', index: 3 },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(elementRegistry.store).not.toHaveBeenCalled();
     });
   });
 

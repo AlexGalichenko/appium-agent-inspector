@@ -410,6 +410,35 @@ describe('hidden element filtering', () => {
     expect(out).toContain('Shown');
   });
 
+  it('still collapses repeated rows inside a container reported as hidden', () => {
+    // Reminders on iOS 27: the list itself is visible="false", its rows are not.
+    const row = (t: string) =>
+      `<XCUIElementTypeCell name="r-${t}" label="${t}" visible="true">` +
+      `<XCUIElementTypeButton name="Circle" visible="true"/>` +
+      `<XCUIElementTypeTextField name="Title" value="${t}" visible="true"/></XCUIElementTypeCell>`;
+    const xml =
+      '<AppiumAUT><XCUIElementTypeApplication name="App" visible="true">' +
+      `<XCUIElementTypeCollectionView name="list" visible="false">${['A', 'B', 'C', 'D'].map(row).join('')}` +
+      '</XCUIElementTypeCollectionView></XCUIElementTypeApplication></AppiumAUT>';
+    const out = toAccessibilityYaml(xml);
+    expect(out).toContain('# +3 more like above');
+    expect(out).toContain('- [3] "r-D" "D" = = "D"');
+  });
+
+  it('keeps the visible contents of a container reported as hidden', () => {
+    // Shape seen on iOS 27 Settings: one full-screen wrapper says
+    // visible="false" while the whole UI inside it is visible.
+    const xml =
+      '<AppiumAUT><XCUIElementTypeApplication name="Settings" visible="true">' +
+      '<XCUIElementTypeOther visible="false">' +
+      '<XCUIElementTypeButton name="General" visible="true"/>' +
+      '<XCUIElementTypeButton name="Ghost" visible="false"/>' +
+      '</XCUIElementTypeOther></XCUIElementTypeApplication></AppiumAUT>';
+    const out = toAccessibilityYaml(xml);
+    expect(out).toContain('"General"');
+    expect(out).not.toContain('Ghost');
+  });
+
   it('drops Android nodes marked displayed="false"', () => {
     const xml =
       '<hierarchy><android.widget.TextView text="Hidden" displayed="false"/>' +
@@ -492,7 +521,7 @@ describe('repeated sibling collapsing', () => {
         '  - framelayout [clickable, id="row"]:',
         '    - textview "Item 0" [id="title"]',
         '    - button "Add" [clickable, id="add"]',
-        '  # +3 same-shape siblings; [n] is the sibling position, tokens align with the example above, "=" means unchanged:',
+        '  # +3 more like above; "=" = same, [n] is not an --index:',
         '  - [1] = "Item 1" = = =',
         '  - [2] = "Item 2" = = =',
         '  - [3] = "Item 3" = = =',
@@ -502,14 +531,14 @@ describe('repeated sibling collapsing', () => {
 
   it('leaves a run shorter than three siblings alone', () => {
     const rendered = toAccessibilityYaml(androidRows(2));
-    expect(rendered).not.toContain('same-shape siblings');
+    expect(rendered).not.toContain('more like above');
     expect(rendered).toContain('"Item 0"');
     expect(rendered).toContain('"Item 1"');
   });
 
   it('lists every sibling in full when collapsing is turned off', () => {
     const rendered = toAccessibilityYaml(androidRows(4), { collapse: false });
-    expect(rendered).not.toContain('same-shape siblings');
+    expect(rendered).not.toContain('more like above');
     for (const i of [0, 1, 2, 3]) {
       expect(rendered).toContain(`- textview "Item ${i}" [id="title"]`);
     }
@@ -523,7 +552,7 @@ describe('repeated sibling collapsing', () => {
     ).join('');
     const xml = `<hierarchy><XCUIElementTypeTable name="List" x="0" y="0" width="390" height="844">${cells}</XCUIElementTypeTable></hierarchy>`;
     const rendered = toAccessibilityYaml(xml);
-    expect(rendered).not.toContain('same-shape siblings');
+    expect(rendered).not.toContain('more like above');
     expect(rendered).toContain('- cell "Row 3"');
   });
 
@@ -555,11 +584,124 @@ describe('repeated sibling collapsing', () => {
     const rendered = toAccessibilityYaml(xml);
     expect(rendered).toContain('- statictext "T0"');
     expect(rendered).toContain('- button "U3"');
-    expect(rendered.match(/same-shape siblings/g)).toHaveLength(2);
+    expect(rendered.match(/more like above/g)).toHaveLength(2);
   });
 });
 
 // ─── Tap-target bounds ────────────────────────────────────────────────────────
+
+describe('redundant lines', () => {
+  it('drops a caption that only repeats its parent label, moving bounds to the parent', () => {
+    const xml =
+      '<AppiumAUT><XCUIElementTypeButton name="com.app.general" label="General" x="16" y="380" width="370" height="53">' +
+      '<XCUIElementTypeStaticText name="General" label="General" x="60" y="393" width="102" height="29"/>' +
+      '<XCUIElementTypeImage name="chevron" x="360" y="400" width="8" height="13"/>' +
+      '</XCUIElementTypeButton></AppiumAUT>';
+    const out = toAccessibilityYaml(xml, { bounds: true });
+    expect(out).not.toContain('statictext');
+    expect(out).toContain(
+      '- button "com.app.general" [label="General", @201,407 370x53]:',
+    );
+    expect(out).toContain('- image "chevron"');
+  });
+
+  it('keeps a caption that says something the parent does not', () => {
+    const xml =
+      '<AppiumAUT><XCUIElementTypeButton name="row" label="General">' +
+      '<XCUIElementTypeStaticText name="General, 1 update"/></XCUIElementTypeButton></AppiumAUT>';
+    expect(toAccessibilityYaml(xml)).toContain('statictext "General, 1 update"');
+  });
+
+  it('never drops an interactive child, even one named like its parent', () => {
+    const xml =
+      '<AppiumAUT><XCUIElementTypeCell name="Delete">' +
+      '<XCUIElementTypeButton name="Delete"/></XCUIElementTypeCell></AppiumAUT>';
+    expect(toAccessibilityYaml(xml)).toContain('- button "Delete"');
+  });
+
+  it('keeps every line under --no-collapse', () => {
+    const xml =
+      '<AppiumAUT><XCUIElementTypeButton name="General">' +
+      '<XCUIElementTypeStaticText name="General"/></XCUIElementTypeButton></AppiumAUT>';
+    expect(toAccessibilityYaml(xml, { collapse: false })).toContain(
+      'statictext "General"',
+    );
+  });
+
+  it('prints consecutive identical single-line siblings once with a count', () => {
+    const bar = '<XCUIElementTypeOther name="Scroll bar" value="0%"/>';
+    const xml = `<AppiumAUT><XCUIElementTypeTable name="List">${bar}${bar}</XCUIElementTypeTable></AppiumAUT>`;
+    const out = toAccessibilityYaml(xml);
+    expect(out).toContain('- other "Scroll bar" [value="0%"] ×2');
+    expect(out.match(/Scroll bar/g)).toHaveLength(1);
+  });
+});
+
+describe('iOS quirks seen on device', () => {
+  it('collapses the keyboard to one line, keeping only keys that submit', () => {
+    const keys = ['Q', 'W', 'E']
+      .map((k) => `<XCUIElementTypeKey name="${k}" visible="true"/>`)
+      .join('');
+    const xml =
+      '<AppiumAUT><XCUIElementTypeApplication name="App" visible="true">' +
+      '<XCUIElementTypeKeyboard visible="true" x="0" y="589" width="402" height="227">' +
+      `<XCUIElementTypeOther name="UIKeyboardLayoutStar Preview" visible="true">${keys}` +
+      '<XCUIElementTypeButton name="Return" label="return" visible="true"/>' +
+      '</XCUIElementTypeOther></XCUIElementTypeKeyboard></XCUIElementTypeApplication></AppiumAUT>';
+    expect(toAccessibilityYaml(xml)).toBe(
+      ['- application "App":', '  - keyboard [4 keys]:', '    - button "Return"'].join(
+        '\n',
+      ),
+    );
+    expect(toAccessibilityYaml(xml, { bounds: true })).toContain(
+      '- keyboard [4 keys, @201,703 402x227]:',
+    );
+    expect(toAccessibilityYaml(xml, { collapse: false })).toContain('key "Q"');
+  });
+
+  it('drops a caption that repeats a named ancestor through anonymous wrappers', () => {
+    const xml =
+      '<AppiumAUT><XCUIElementTypeCell name="John Appleseed" visible="true" x="0" y="100" width="400" height="60">' +
+      '<XCUIElementTypeOther visible="true"><XCUIElementTypeOther visible="true">' +
+      '<XCUIElementTypeStaticText name="John Appleseed" visible="true"/>' +
+      '</XCUIElementTypeOther></XCUIElementTypeOther></XCUIElementTypeCell></AppiumAUT>';
+    expect(toAccessibilityYaml(xml)).toBe('- cell "John Appleseed"');
+    expect(toAccessibilityYaml(xml, { bounds: true })).toBe(
+      '- cell "John Appleseed" [@200,130 400x60]',
+    );
+  });
+
+  it("drops a caption that repeats its row's value", () => {
+    const xml =
+      '<AppiumAUT><XCUIElementTypeCell name="Ringtone" value="Default" visible="true">' +
+      '<XCUIElementTypeStaticText name="Default" visible="true"/></XCUIElementTypeCell></AppiumAUT>';
+    expect(toAccessibilityYaml(xml)).toBe('- cell "Ringtone" [value="Default"]');
+  });
+
+  it('shows on-screen controls when iOS reports none as visible (popover)', () => {
+    const xml =
+      '<AppiumAUT><XCUIElementTypeApplication name="Contacts" visible="true" x="0" y="0" width="402" height="874">' +
+      '<XCUIElementTypeOther name="PopoverDismissRegion" visible="true" x="0" y="0" width="402" height="874"/>' +
+      '<XCUIElementTypeButton name="Delete Contact" visible="false" x="97" y="755" width="208" height="48"/>' +
+      '<XCUIElementTypeButton name="Offscreen" visible="false" x="0" y="2000" width="100" height="40"/>' +
+      '</XCUIElementTypeApplication></AppiumAUT>';
+    const out = toAccessibilityYaml(xml);
+    expect(out.split('\n')[0]).toMatch(/^# iOS reported no control as visible/);
+    expect(out).toContain('- button "Delete Contact"');
+    expect(out).not.toContain('Offscreen');
+  });
+
+  it('keeps trusting visibility while any control is reported visible', () => {
+    const xml =
+      '<AppiumAUT><XCUIElementTypeApplication name="App" visible="true" x="0" y="0" width="402" height="874">' +
+      '<XCUIElementTypeButton name="Shown" visible="true" x="0" y="0" width="10" height="10"/>' +
+      '<XCUIElementTypeButton name="Behind sheet" visible="false" x="0" y="100" width="10" height="10"/>' +
+      '</XCUIElementTypeApplication></AppiumAUT>';
+    const out = toAccessibilityYaml(xml);
+    expect(out).not.toContain('Behind sheet');
+    expect(out).not.toContain('# iOS reported');
+  });
+});
 
 describe('bounds are limited to tap targets', () => {
   it('annotates a clickable container but not a plain layout one', () => {

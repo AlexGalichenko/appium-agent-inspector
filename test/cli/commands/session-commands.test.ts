@@ -203,9 +203,24 @@ describe('session-status', () => {
       }),
     });
     expect(await runCommand(registerSessionStatus, ['session-status'])).toEqual([
-      'Active session: sess-1',
-      'Started at: 2026-01-01T00:00:00.000Z',
+      'Active session: sess-1 (since 2026-01-01T00:00:00.000Z)',
     ]);
+  });
+
+  it('leaves the capabilities Appium echoed back out of --json', async () => {
+    useClient({
+      getSessionStatus: resolves({
+        active: true,
+        sessionId: 'sess-1',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        capabilities: { platformName: 'iOS', huge: 'x'.repeat(500) },
+      }),
+    });
+    expect(await runJson(registerSessionStatus, ['session-status'])).toEqual({
+      active: true,
+      sessionId: 'sess-1',
+      startedAt: '2026-01-01T00:00:00.000Z',
+    });
   });
 });
 
@@ -228,7 +243,7 @@ describe('context', () => {
     const lines = await runCommand(registerContext, ['context', '--switch', 'WEBVIEW_1']);
 
     expect(getContexts).not.toHaveBeenCalled();
-    expect(switchContext).toHaveBeenCalledWith('WEBVIEW_1');
+    expect(switchContext).toHaveBeenCalledWith({ name: 'WEBVIEW_1' });
     expect(lines).toEqual(['  NATIVE_APP', '* WEBVIEW_1']);
   });
 });
@@ -287,24 +302,23 @@ describe('activate-app / terminate-app', () => {
   });
 
   it('confirms a termination that stopped a running app', async () => {
-    useClient({ terminateApp: resolves(true) });
+    useClient({ terminateApp: resolves({ terminated: true }) });
     expect(await runCommand(registerTerminateApp, ['terminate-app', 'com.demo'])).toEqual(
       ['Terminated com.demo.'],
     );
   });
 
   it('says so when the app was not running', async () => {
-    useClient({ terminateApp: resolves(false) });
+    useClient({ terminateApp: resolves({ terminated: false }) });
     expect(await runCommand(registerTerminateApp, ['terminate-app', 'com.demo'])).toEqual(
       ['com.demo was not running.'],
     );
   });
 
   it('reports the terminated flag under --json', async () => {
-    useClient({ terminateApp: resolves(false) });
+    useClient({ terminateApp: resolves({ terminated: false }) });
     expect(await runJson(registerTerminateApp, ['terminate-app', 'com.demo'])).toEqual({
       terminated: false,
-      appId: 'com.demo',
     });
   });
 });

@@ -1,8 +1,13 @@
 import { timingSafeEqual } from 'node:crypto';
 import Fastify, { LogController } from 'fastify';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { AppiumAgentError, UnauthorizedError } from '../shared/errors.js';
+import {
+  AppiumAgentError,
+  UnauthorizedError,
+  ValidationError,
+} from '../shared/errors.js';
 import { DAEMON_TOKEN_HEADER } from '../shared/constants.js';
+import { ROUTES } from '../shared/routes.js';
 import type { Logger } from '../shared/logger.js';
 import type { SessionManager } from './session-manager.js';
 import type { ElementRegistry } from './element-registry.js';
@@ -41,6 +46,14 @@ function tokenMatches(presented: unknown, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+function statusCodeOf(error: unknown): number | undefined {
+  if (error === null || typeof error !== 'object' || !('statusCode' in error)) {
+    return undefined;
+  }
+  const { statusCode } = error;
+  return typeof statusCode === 'number' ? statusCode : undefined;
+}
+
 function sendError(reply: FastifyReply, error: AppiumAgentError) {
   return reply.status(error.httpStatus).send({
     ok: false,
@@ -54,6 +67,10 @@ function sendError(reply: FastifyReply, error: AppiumAgentError) {
 
 export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   const { sessionManager, elementRegistry, logger, token, requestShutdown } = deps;
+
+  // Stored element references are only meaningful within a session, so every
+  // way a session ends — delete, heartbeat failure, Appium dropping it — clears them.
+  sessionManager.setSessionLostHandler(() => elementRegistry.invalidateAll());
 
   const fastify = Fastify({
     logger: false, // we use pino directly
@@ -98,8 +115,8 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
       }
       try {
         done(null, JSON.parse(body as string));
-      } catch (err) {
-        done(err as Error, undefined);
+      } catch {
+        done(new ValidationError('Request body is not valid JSON'), undefined);
       }
     },
   );
@@ -116,7 +133,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   // Graceful shutdown endpoint. The shutdown sequence closes this very server,
   // so it only starts once the reply has been flushed.
   fastify.post(
-    '/daemon/shutdown',
+    ROUTES.shutdown.path,
     {
       onResponse: async () => {
         requestShutdown('HTTP');
@@ -128,6 +145,19 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     },
   );
 
+  // A daemon that predates the CLI lacks its newer routes. Fastify's default
+  // 404 body is not our envelope, so the CLI could not explain it.
+  fastify.setNotFoundHandler(async (request, reply) => {
+    return sendError(
+      reply,
+      new AppiumAgentError(
+        'ROUTE_NOT_FOUND',
+        `The daemon has no route ${request.method} ${pathOf(request.url)}. It may be older than this CLI — restart it with: appium-agent daemon:kill && appium-agent daemon:start`,
+        404,
+      ),
+    );
+  });
+
   // Single error handler — every deliberate error carries its own status, so
   // routes never map errors themselves.
   fastify.setErrorHandler(async (error, request, reply) => {
@@ -138,8 +168,27 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     const mapped = fromWebDriverError(error);
     if (mapped !== null) {
       if (isSessionGoneError(error)) sessionManager.markSessionLost();
-      logger.debug({ err: error, url: request.url }, 'WebDriver error');
+      // An element miss is routine; a driver refusing a command is worth seeing.
+      if (mapped.code === 'DRIVER_ERROR') {
+        logger.warn({ err: error, url: request.url }, 'Driver error');
+      } else {
+        logger.debug({ err: error, url: request.url }, 'WebDriver error');
+      }
       return sendError(reply, mapped);
+    }
+
+    // Fastify's own request errors (body too large, bad content type) carry a
+    // 4xx status. They are the caller's fault, not an internal failure.
+    const status = statusCodeOf(error);
+    if (status !== undefined && status >= 400 && status < 500) {
+      return sendError(
+        reply,
+        new AppiumAgentError(
+          'BAD_REQUEST',
+          error instanceof Error ? error.message : String(error),
+          status,
+        ),
+      );
     }
 
     logger.error({ err: error, url: request.url }, 'Unhandled error');

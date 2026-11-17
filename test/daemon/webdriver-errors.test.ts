@@ -31,6 +31,33 @@ describe('fromWebDriverError', () => {
 
   it('leaves unrelated errors alone', () => {
     expect(fromWebDriverError(new Error('boom'))).toBeNull();
+  });
+
+  it.each(['WebDriverError', 'unknown error', 'unsupported operation'])(
+    'passes a driver-side "%s" through as a 502 DRIVER_ERROR with its message',
+    (name) => {
+      const mapped = fromWebDriverError(
+        webDriverError(name, "'ffmpeg' binary is not found in PATH"),
+      );
+      expect(mapped?.code).toBe('DRIVER_ERROR');
+      expect(mapped?.httpStatus).toBe(502);
+      expect(mapped?.message).toBe("'ffmpeg' binary is not found in PATH");
+    },
+  );
+
+  it('turns a failed re-find mid-action into STALE_ELEMENT with a selector hint', () => {
+    const mapped = fromWebDriverError(
+      new Error(
+        'Can\'t call setValue on element with selector "-ios predicate string:value == ' +
+          '"Coffee"" at index 0 because element wasn\'t found',
+      ),
+    );
+    expect(mapped?.code).toBe('STALE_ELEMENT');
+    expect(mapped?.httpStatus).toBe(410);
+    expect(mapped?.message).toMatch(/does not depend on what the action changes/);
+  });
+
+  it('still leaves non-driver errors unmapped', () => {
     expect(fromWebDriverError(webDriverError('constructor'))).toBeNull();
     expect(fromWebDriverError('not an error')).toBeNull();
   });

@@ -312,8 +312,7 @@ function collapseRuns(groups: string[][]): string[] {
     // `[n]` counts siblings inside this run — it is not a `find-element --index`,
     // which counts matches of one selector across the whole hierarchy.
     out.push(
-      `${indent}# +${run - 1} same-shape siblings; [n] is the sibling position, ` +
-        `tokens align with the example above, "${SAME}" means unchanged:`,
+      `${indent}# +${run - 1} more like above; "${SAME}" = same, [n] is not an --index:`,
     );
 
     for (let k = i + 1; k < end; k++) {
@@ -332,32 +331,100 @@ function collapseRuns(groups: string[][]): string[] {
   return out;
 }
 
-function renderNode(node: XmlNode, depth: number, options: TreeOptions): string[] {
-  if (WRAPPER_TAGS.has(node.tag)) {
-    return node.children.flatMap((c) => renderNode(c, depth, options));
+/** Per-render state that is not a caller option. */
+interface RenderContext {
+  options: TreeOptions;
+  /**
+   * Set when iOS reported nothing interactive as visible — it does that under a
+   * popover or alert, where every control is plainly on screen. Hidden nodes
+   * whose frame lies on this screen are then rendered rather than dropped.
+   */
+  screen: Rect | null;
+}
+
+/**
+ * The texts of the nearest named ancestor, carried down through anonymous
+ * wrappers so a caption two wrappers deep still counts as repeating it.
+ * `dropped` tells that ancestor one of its captions was removed.
+ */
+interface EchoScope {
+  texts: Set<string>;
+  dropped: boolean;
+}
+
+/**
+ * Renders a list of siblings at one depth, summarising repeated runs. Every
+ * path that emits children goes through here: a node rendered its children
+ * any other way would leave list rows uncollapsed.
+ */
+function renderSiblings(
+  nodes: XmlNode[],
+  depth: number,
+  ctx: RenderContext,
+  echo: EchoScope | null,
+): { lines: string[]; count: number } {
+  const groups = nodes
+    .map((c) => renderNode(c, depth, ctx, echo))
+    .filter((lines) => lines.length > 0);
+  const lines =
+    ctx.options.collapse === false ? groups.flat() : collapseRuns(mergeRepeats(groups));
+  return { lines, count: groups.length };
+}
+
+function renderNode(
+  node: XmlNode,
+  depth: number,
+  ctx: RenderContext,
+  echo: EchoScope | null,
+): string[] {
+  const literal = ctx.options.collapse === false;
+
+  if (!literal && node.tag === 'XCUIElementTypeKeyboard') {
+    return renderKeyboard(node, depth, ctx);
   }
 
-  if (isHidden(node)) return [];
+  // A hidden node is dropped, but not its subtree: XCUITest routinely reports
+  // a full-screen container (or a whole list) as visible="false" while every
+  // control inside it is visible, and pruning there blanked the entire screen.
+  // Visibility is judged per node, so hidden descendants still drop out.
+  if (WRAPPER_TAGS.has(node.tag) || isHiddenHere(node, ctx)) {
+    return renderSiblings(node.children, depth, ctx, echo).lines;
+  }
+
+  if (!literal && echo !== null && repeats(node, echo.texts)) {
+    echo.dropped = true;
+    return [];
+  }
 
   const name = getName(node);
   const states = getStates(node, name);
-
-  const renderedChildren = node.children.map((c) => renderNode(c, depth + 1, options));
-  const nonEmptyChildren = renderedChildren.filter((lines) => lines.length > 0);
-  const childLines =
-    options.collapse === false ? nonEmptyChildren.flat() : collapseRuns(nonEmptyChildren);
-
   // An anonymous, stateless node carries nothing a selector could target, so it
   // is a transparent passthrough whatever its child count: its children shift up
   // one level and it disappears. With no children left that prunes it entirely.
-  if (!name && states.length === 0) {
+  const anonymous = !name && states.length === 0;
+
+  const scope: EchoScope | null = literal
+    ? null
+    : anonymous
+      ? echo
+      : { texts: textsOf(node), dropped: false };
+  const { lines: childLines, count: childCount } = renderSiblings(
+    node.children,
+    depth + 1,
+    ctx,
+    scope,
+  );
+
+  if (anonymous) {
     return childLines.map((line) => line.slice(2));
   }
 
   const role = getRole(node);
   const namePart = name ? ` "${name}"` : '';
   const annotations =
-    options.bounds === true && isTapTarget(node, nonEmptyChildren.length)
+    ctx.options.bounds === true &&
+    // A parent whose caption was dropped takes over that caption's coordinates.
+    (isTapTarget(node, childCount) || scope?.dropped === true)
       ? [...states, ...getBoundsParts(node)]
       : states;
   const statePart = annotations.length ? ` [${annotations.join(', ')}]` : '';
@@ -365,6 +432,149 @@ function renderNode(node: XmlNode, depth: number, options: TreeOptions): string[
   const prefix = '  '.repeat(depth) + '- ';
 
   return [`${prefix}${role}${namePart}${statePart}${colon}`, ...childLines];
+}
+
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function isHiddenHere(node: XmlNode, ctx: RenderContext): boolean {
+  if (!isHidden(node)) return false;
+  if (ctx.screen === null) return true;
+  const rect = getRect(node);
+  return rect === null || !overlaps(rect, ctx.screen);
+}
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return (
+    a.width > 0 &&
+    a.height > 0 &&
+    a.x < b.x + b.width &&
+    a.y < b.y + b.height &&
+    a.x + a.width > b.x &&
+    a.y + a.height > b.y
+  );
+}
+
+/** Roles an agent acts on. A screen with none of them visible is misreported. */
+const INTERACTIVE_ROLES = new Set([
+  'button',
+  'cell',
+  'textfield',
+  'securetextfield',
+  'searchfield',
+  'textview',
+  'switch',
+  'slider',
+  'link',
+  'key',
+]);
+
+/** Whether any control in the tree is reported as visible (or as hidden). */
+function hasControl(node: XmlNode, hidden: boolean): boolean {
+  if (isHidden(node) === hidden && INTERACTIVE_ROLES.has(getRole(node))) return true;
+  return node.children.some((c) => hasControl(c, hidden));
+}
+
+function findApplication(node: XmlNode): XmlNode | null {
+  if (node.tag === 'XCUIElementTypeApplication') return node;
+  for (const child of node.children) {
+    const found = findApplication(child);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+/** Keys worth keeping from a keyboard: the ones that submit or move on. */
+const SUBMIT_KEY = /^(return|search|go|done|next|send|join|continue|enter)$/i;
+
+function descendants(node: XmlNode): XmlNode[] {
+  return node.children.flatMap((c) => [c, ...descendants(c)]);
+}
+
+/**
+ * The on-screen keyboard is thirty-odd `key "Q"` lines that no agent taps —
+ * text goes in with `type`. One line says it is up (and, with --bounds, what it
+ * covers); only a key that submits, such as Return or Search, is kept.
+ * `--no-collapse` still lists every key.
+ */
+function renderKeyboard(node: XmlNode, depth: number, ctx: RenderContext): string[] {
+  const keys = descendants(node).filter(
+    (n) => !isHidden(n) && (getRole(n) === 'key' || getRole(n) === 'button'),
+  );
+  if (keys.length === 0) return [];
+
+  const bounds = ctx.options.bounds === true;
+  const head = [`${keys.length} keys`, ...(bounds ? getBoundsParts(node) : [])];
+  const submit = keys.filter(
+    (k) =>
+      SUBMIT_KEY.test(k.attrs['name'] ?? '') || SUBMIT_KEY.test(k.attrs['label'] ?? ''),
+  );
+  const indent = '  '.repeat(depth);
+  return [
+    `${indent}- keyboard [${head.join(', ')}]${submit.length > 0 ? ':' : ''}`,
+    ...submit.map((k) => {
+      const extra = bounds ? getBoundsParts(k) : [];
+      const tail = extra.length > 0 ? ` [${extra.join(', ')}]` : '';
+      return `${indent}  - ${getRole(k)} "${getName(k) ?? ''}"${tail}`;
+    }),
+  ];
+}
+
+/** Leaves that only display content; a button or field is always kept. */
+const DISPLAY_ROLES = new Set(['statictext', 'text', 'textview', 'image', 'imageview']);
+
+/** Everything a node is called or shows — what a caption could repeat. */
+function textsOf(node: XmlNode): Set<string> {
+  const texts = new Set<string>();
+  for (const value of [getName(node), node.attrs['label'], node.attrs['value']]) {
+    if (value) texts.add(value);
+  }
+  return texts;
+}
+
+/**
+ * A text or image leaf that only repeats its nearest named ancestor's name,
+ * label or value — the caption inside an iOS cell, say — adds a line and
+ * nothing to target: the ancestor comes first in document order, so a locator
+ * on that text still lands on it.
+ */
+function repeats(node: XmlNode, texts: Set<string>): boolean {
+  if (node.children.length > 0 || !DISPLAY_ROLES.has(getRole(node))) return false;
+  const text = getName(node);
+  if (text === null || getStates(node, text).length > 0) return false;
+  return texts.has(text);
+}
+
+/**
+ * Consecutive identical single-line siblings (a scroll indicator drawn twice)
+ * print once with a count: no selector could tell them apart anyway.
+ */
+function mergeRepeats(groups: string[][]): string[][] {
+  const out: string[][] = [];
+  let i = 0;
+  while (i < groups.length) {
+    const key = groups[i]!.join('\n');
+    let end = i + 1;
+    // Multi-line siblings are left to collapseRuns, which already reduces an
+    // identical row to a line of "=" without breaking the run around it.
+    if (groups[i]!.length === 1) {
+      while (end < groups.length && groups[end]!.join('\n') === key) end++;
+    }
+    const group = [...groups[i]!];
+    if (end - i > 1) {
+      const head = group[0]!;
+      group[0] = head.endsWith(':')
+        ? `${head.slice(0, -1)} ×${end - i}:`
+        : `${head} ×${end - i}`;
+    }
+    out.push(group);
+    i = end;
+  }
+  return out;
 }
 
 /**
@@ -380,5 +590,19 @@ function isTapTarget(node: XmlNode, childCount: number): boolean {
 export function toAccessibilityYaml(xml: string, options: TreeOptions = {}): string {
   const root = parseXml(xml);
   if (!root) return '';
-  return renderNode(root, 0, options).join('\n');
+
+  // iOS sometimes marks every control as invisible (under a popover or alert)
+  // although they are on screen. Dropping them would show an empty screen and
+  // send the agent looking for a button that is right there.
+  const app = findApplication(root);
+  const screen =
+    app !== null && !hasControl(root, false) && hasControl(root, true)
+      ? getRect(app)
+      : null;
+  const lines = renderNode(root, 0, { options, screen }, null);
+  if (screen === null) return lines.join('\n');
+  return [
+    '# iOS reported no control as visible; showing everything on screen instead',
+    ...lines,
+  ].join('\n');
 }

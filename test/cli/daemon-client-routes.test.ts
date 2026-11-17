@@ -31,12 +31,17 @@ describe('DaemonClient request routing', () => {
     ['getContexts', () => client.getContexts(), 'GET', '/session/contexts'],
     [
       'switchContext',
-      () => client.switchContext('WEBVIEW_1'),
+      () => client.switchContext({ name: 'WEBVIEW_1' }),
       'POST',
       '/session/context',
     ],
     ['getDeviceInfo', () => client.getDeviceInfo(), 'GET', '/session/device'],
-    ['findElements', () => client.findElements(locator), 'POST', '/elements/find'],
+    [
+      'findElement all',
+      () => client.findElement({ ...locator, all: true }),
+      'POST',
+      '/elements/find',
+    ],
     ['waitForElement', () => client.waitForElement(locator), 'POST', '/elements/wait'],
     ['listElements', () => client.listElements(), 'GET', '/elements'],
     ['getElement', () => client.getElement('el-1'), 'GET', '/elements/el-1'],
@@ -117,13 +122,15 @@ describe('DaemonClient request routing', () => {
     await expect(client.healthCheck()).resolves.toBe(true);
   });
 
-  it('unwraps the boolean the daemon reports for terminateApp', async () => {
+  it('returns the daemon payload for terminateApp as-is', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ ok: true, data: { terminated: true } }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
     );
-    await expect(client.terminateApp({ appId: 'com.demo' })).resolves.toBe(true);
+    await expect(client.terminateApp({ appId: 'com.demo' })).resolves.toEqual({
+      terminated: true,
+    });
   });
 });

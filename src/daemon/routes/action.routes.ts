@@ -1,21 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import {
-  ActivateAppRequestSchema,
-  ClickRequestSchema,
-  ExecuteCommandRequestSchema,
-  GetAttributeRequestSchema,
-  GetLocationRequestSchema,
-  GetTextRequestSchema,
-  InstallAppRequestSchema,
-  PerformActionRequestSchema,
-  ScrollRequestSchema,
-  TerminateAppRequestSchema,
-  TypeRequestSchema,
-} from '../../shared/types.js';
+import { ROUTES } from '../../shared/routes.js';
 import type { ScrollDirection, ScrollResponse } from '../../shared/types.js';
-import { toWdioSelector } from '../element-registry.js';
+import { findMatches, toWdioSelector } from '../element-registry.js';
 import type { Driver } from '../session-manager.js';
-import { parseBody, resolveElement } from './helpers.js';
+import { on, resolveElement } from './helpers.js';
 import type { RouteDeps } from './helpers.js';
 
 export async function actionRoutes(
@@ -23,118 +11,93 @@ export async function actionRoutes(
   deps: RouteDeps,
 ): Promise<void> {
   const { sessionManager } = deps;
+  const driver = () => sessionManager.getDriver();
 
-  fastify.post('/actions/click', async (request, reply) => {
-    const body = parseBody(ClickRequestSchema, request.body);
-    const element = await resolveElement(body, deps);
-    await element.click();
-    return reply.send({ ok: true, data: { message: 'Clicked' } });
+  on(fastify, ROUTES.click, async (body) => {
+    await (await resolveElement(body, deps)).click();
+    return { message: 'Clicked' };
   });
 
-  fastify.post('/actions/type', async (request, reply) => {
-    const body = parseBody(TypeRequestSchema, request.body);
+  on(fastify, ROUTES.type, async (body) => {
     const element = await resolveElement(body, deps);
     // wdio's setValue clears the field before typing, so it is exactly "replace
-    // the contents"; only addValue leaves existing text in place.
+    // the contents"; only addValue leaves existing text in place — except on
+    // Android, where UiAutomator2's send-keys is setText and replaces too.
     if (body.clearFirst) {
       await element.setValue(body.text);
+    } else if (driver().isAndroid) {
+      await element.addValue((await androidFieldText(element)) + body.text);
     } else {
       await element.addValue(body.text);
     }
-    return reply.send({ ok: true, data: { message: 'Text entered' } });
+    return { message: 'Text entered' };
   });
 
-  fastify.post('/actions/text', async (request, reply) => {
-    const body = parseBody(GetTextRequestSchema, request.body);
-    const element = await resolveElement(body, deps);
-    const text = await element.getText();
-    return reply.send({ ok: true, data: { text } });
-  });
+  on(fastify, ROUTES.getText, async (body) => ({
+    text: await (await resolveElement(body, deps)).getText(),
+  }));
 
-  fastify.post('/actions/activate-app', async (request, reply) => {
-    const { appId } = parseBody(ActivateAppRequestSchema, request.body);
-    await sessionManager.getDriver().activateApp(appId);
-    return reply.send({ ok: true, data: { message: 'App activated' } });
-  });
+  on(fastify, ROUTES.getAttribute, async (body) => ({
+    value: await (await resolveElement(body, deps)).getAttribute(body.attribute),
+  }));
 
-  fastify.post('/actions/terminate-app', async (request, reply) => {
-    const { appId } = parseBody(TerminateAppRequestSchema, request.body);
-    // wdio's protocol types declare terminateApp as Promise<void>, but the
-    // Appium endpoint documents and returns a boolean saying whether the app
-    // was running. Assert it here rather than leaking `undefined` to callers.
-    const terminated = (await sessionManager
-      .getDriver()
-      .terminateApp(appId)) as unknown as boolean;
-    return reply.send({ ok: true, data: { terminated } });
-  });
-
-  fastify.post('/actions/install-app', async (request, reply) => {
-    const { appPath } = parseBody(InstallAppRequestSchema, request.body);
-    await sessionManager.getDriver().installApp(appPath);
-    return reply.send({ ok: true, data: { message: `App installed: ${appPath}` } });
-  });
-
-  fastify.post('/actions/attribute', async (request, reply) => {
-    const body = parseBody(GetAttributeRequestSchema, request.body);
-    const element = await resolveElement(body, deps);
-    const value = await element.getAttribute(body.attribute);
-    return reply.send({ ok: true, data: { attribute: body.attribute, value } });
-  });
-
-  fastify.get('/actions/screenshot', async (_request, reply) => {
-    const data = await sessionManager.getDriver().takeScreenshot();
-    return reply.send({
-      ok: true,
-      data: { data, capturedAt: new Date().toISOString() },
-    });
-  });
-
-  fastify.post('/actions/execute', async (request, reply) => {
-    const { command, params } = parseBody(ExecuteCommandRequestSchema, request.body);
-    const result = await sessionManager.getDriver().execute(command, params ?? {});
-    return reply.send({ ok: true, data: { result } });
-  });
-
-  fastify.post('/actions/location', async (request, reply) => {
-    const body = parseBody(GetLocationRequestSchema, request.body);
+  on(fastify, ROUTES.getElementLocation, async (body) => {
     const element = await resolveElement(body, deps);
     const [location, size] = await Promise.all([
       element.getLocation(),
       element.getSize(),
     ]);
-    return reply.send({
-      ok: true,
-      data: { x: location.x, y: location.y, width: size.width, height: size.height },
-    });
+    return { x: location.x, y: location.y, width: size.width, height: size.height };
   });
 
-  fastify.post('/actions/video-start', async (_request, reply) => {
-    await sessionManager.getDriver().startRecordingScreen();
-    return reply.send({
-      ok: true,
-      data: { message: 'Recording started', startedAt: new Date().toISOString() },
-    });
+  on(fastify, ROUTES.activateApp, async ({ appId }) => {
+    await driver().activateApp(appId);
+    return { message: 'App activated' };
   });
 
-  fastify.post('/actions/video-stop', async (_request, reply) => {
-    const data = await sessionManager.getDriver().stopRecordingScreen();
-    return reply.send({
-      ok: true,
-      data: { data, stoppedAt: new Date().toISOString() },
-    });
+  on(fastify, ROUTES.terminateApp, async ({ appId }) => {
+    // wdio's protocol types declare terminateApp as Promise<void>, but the
+    // Appium endpoint documents and returns a boolean saying whether the app
+    // was running. Assert it here rather than leaking `undefined` to callers.
+    const terminated = (await driver().terminateApp(appId)) as unknown as boolean;
+    return { terminated };
   });
 
-  fastify.post('/actions/scroll', async (request, reply) => {
-    const body = parseBody(ScrollRequestSchema, request.body);
-    const driver = sessionManager.getDriver();
+  on(fastify, ROUTES.installApp, async ({ appPath }) => {
+    await driver().installApp(appPath);
+    return { message: `App installed: ${appPath}` };
+  });
 
-    const { width, height } = await driver.getWindowSize();
-    const swipe = swipeVector(body.direction, body.percent, width, height);
+  on(fastify, ROUTES.executeCommand, async ({ command, params }) => ({
+    result: await driver().execute(command, params ?? {}),
+  }));
+
+  on(fastify, ROUTES.getPageSource, async () => ({
+    source: await driver().getPageSource(),
+  }));
+
+  on(fastify, ROUTES.takeScreenshot, async () => ({
+    data: await driver().takeScreenshot(),
+  }));
+
+  on(fastify, ROUTES.startVideoRecording, async () => {
+    await driver().startRecordingScreen();
+    return { message: 'Recording started' };
+  });
+
+  on(fastify, ROUTES.stopVideoRecording, async () => ({
+    data: await driver().stopRecordingScreen(),
+  }));
+
+  on(fastify, ROUTES.scroll, async (body) => {
+    const d = driver();
+    const { width, height } = await d.getWindowSize();
+    const band = await swipeBand(d, height, sessionManager);
+    const swipe = swipeVector(body.direction, body.percent, width, band.bottom, band.top);
 
     if (body.toElement === undefined) {
-      await performSwipe(driver, swipe, body.duration);
-      const data: ScrollResponse = { direction: body.direction, swipes: 1, found: null };
-      return reply.send({ ok: true, data });
+      await performSwipe(d, swipe, body.duration);
+      return { swipes: 1, found: null };
     }
 
     const selector = toWdioSelector(body.toElement.strategy, body.toElement.selector);
@@ -142,75 +105,72 @@ export async function actionRoutes(
 
     // Under the implicit wait, each check for a still-absent element would
     // block for the full timeout before the next swipe.
-    const data = await sessionManager.withoutImplicitWait(async () => {
+    return sessionManager.withoutImplicitWait(async () => {
       let swipes = 0;
-      let found = await isInView(driver, selector);
+      let found = await isInView(d, selector);
       while (!found && swipes < maxSwipes) {
-        await performSwipe(driver, swipe, duration);
+        await performSwipe(d, swipe, duration);
         swipes += 1;
-        found = await isInView(driver, selector);
+        found = await isInView(d, selector);
       }
-      return { direction: body.direction, swipes, found } satisfies ScrollResponse;
+      return { swipes, found } satisfies ScrollResponse;
     });
-
-    return reply.send({ ok: true, data });
   });
 
-  fastify.post('/actions/perform', async (request, reply) => {
-    const body = parseBody(PerformActionRequestSchema, request.body);
-    const driver = sessionManager.getDriver();
+  on(fastify, ROUTES.performAction, async (body) => {
+    const d = driver();
 
     if (Array.isArray(body)) {
       // Raw W3C Actions API
-      await driver.performActions(body);
-      return reply.send({ ok: true, data: { message: 'actions performed' } });
+      await d.performActions(body);
+      return { message: 'actions performed' };
     }
 
     if (body.type === 'swipe') {
       await performSwipe(
-        driver,
+        d,
         { startX: body.startX, startY: body.startY, endX: body.endX, endY: body.endY },
         body.duration,
       );
     } else {
       // tap and long-press differ only in how long the pointer stays down
-      await driver
-        .action('pointer', { parameters: { pointerType: 'touch' } })
-        .move({ duration: 0, x: body.x, y: body.y })
-        .down({ button: 0 })
-        .pause(body.duration)
-        .up({ button: 0 })
-        .perform();
+      await touchGesture(d, { x: body.x, y: body.y }, body.duration);
     }
-
-    return reply.send({ ok: true, data: { message: `${body.type} performed` } });
+    return { message: `${body.type} performed` };
   });
+}
 
-  fastify.get('/actions/page-source', async (_request, reply) => {
-    const source = await sessionManager.getDriver().getPageSource();
-    return reply.send({
-      ok: true,
-      data: { source, capturedAt: new Date().toISOString() },
-    });
-  });
+/**
+ * What an Android field holds, so `type` can append to it. An empty field
+ * reports its hint ("Search settings") as its text, which `showing-hint` gives
+ * away. A password field cannot be read back; typing into one replaces.
+ */
+async function androidFieldText(element: WebdriverIO.Element): Promise<string> {
+  const read = (name: string) => element.getAttribute(name).then(String, () => null);
+  if ((await read('password')) === 'true') return '';
+  if ((await read('showing-hint')) === 'true') return '';
+  return (await read('text')) ?? '';
 }
 
 /**
  * Whether an element is actually on screen.
  *
- * Neither of the obvious checks is enough on its own: `isExisting` is true for
+ * Neither of the obvious checks is enough on its own: being found is true for
  * anything in the hierarchy, including views far below the fold, and wdio's
  * `isDisplayed` does not consult the native visibility attribute in a native
  * context — an off-screen springboard icon reports displayed. The drivers do
  * expose the truth as an attribute (`visible` on XCUITest, `displayed` on
  * UiAutomator2), so read that first and fall back only if it is unavailable.
+ *
+ * Ask for the platform's own attribute first: on UiAutomator2 an unknown
+ * attribute is an error that takes ~1.6 s, paid on every check of a scroll.
  */
 export async function isInView(driver: Driver, selector: string): Promise<boolean> {
-  const element = driver.$(selector);
+  const element = (await findMatches(driver, selector))[0];
+  if (element === undefined) return false;
 
-  if (!(await element.isExisting())) return false;
-
-  for (const attribute of ['visible', 'displayed']) {
+  const attributes = driver.isAndroid ? ['displayed'] : ['visible', 'displayed'];
+  for (const attribute of attributes) {
     let value: unknown;
     try {
       value = await element.getAttribute(attribute);
@@ -233,6 +193,52 @@ interface SwipeVector {
   endY: number;
 }
 
+/** Without a keyboard frame (Android's IME is not in the app's tree), assume this. */
+const ASSUMED_KEYBOARD_SHARE = 0.4;
+/**
+ * Navigation bars and sheet grabbers live in the top fifth; a swipe starting
+ * there drags them instead of the content. A full-screen swipe never starts
+ * this high, and a band squeezed above the keyboard must not either.
+ */
+const TOP_CHROME_SHARE = 0.2;
+
+/**
+ * The vertical band a swipe may use. A swipe centred on the whole screen
+ * starts on the keyboard when one is up, and the keyboard swallows it: the
+ * form behind never scrolls. So with a keyboard the band runs from below the
+ * top bars to the keyboard's top edge — known exactly on iOS, where the
+ * keyboard is in the hierarchy, and assumed elsewhere.
+ */
+export async function swipeBand(
+  driver: Driver,
+  height: number,
+  sessionManager: RouteDeps['sessionManager'],
+): Promise<{ top: number; bottom: number }> {
+  const whole = { top: 0, bottom: height };
+  let shown = false;
+  try {
+    shown = await driver.isKeyboardShown();
+  } catch {
+    return whole; // the driver cannot tell; scroll as before
+  }
+  if (!shown) return whole;
+
+  const top = await sessionManager.withoutImplicitWait(async () => {
+    const keyboard = (await findMatches(driver, 'class name:XCUIElementTypeKeyboard'))[0];
+    if (keyboard === undefined) return null;
+    try {
+      return (await keyboard.getLocation()).y;
+    } catch {
+      return null;
+    }
+  });
+  const bottom =
+    top !== null && top > 0 && top < height
+      ? top
+      : Math.round(height * (1 - ASSUMED_KEYBOARD_SHARE));
+  return { top: Math.min(Math.round(height * TOP_CHROME_SHARE), bottom), bottom };
+}
+
 /**
  * Scrolling *down* (revealing content below) means dragging the finger *up*,
  * so the vector is inverted relative to the requested direction.
@@ -241,11 +247,13 @@ export function swipeVector(
   direction: ScrollDirection,
   percent: number,
   width: number,
-  height: number,
+  bottom: number,
+  top = 0,
 ): SwipeVector {
+  const span = bottom - top;
   const cx = Math.round(width / 2);
-  const cy = Math.round(height / 2);
-  const dy = Math.round((height * percent) / 2);
+  const cy = Math.round(top + span / 2);
+  const dy = Math.round((span * percent) / 2);
   const dx = Math.round((width * percent) / 2);
 
   switch (direction) {
@@ -260,17 +268,33 @@ export function swipeVector(
   }
 }
 
-async function performSwipe(
+interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * One finger: press at `start`, hold for `holdMs`, then optionally drag to
+ * `drag.to` over `drag.duration` before lifting. Every gesture is this shape.
+ */
+async function touchGesture(
   driver: Driver,
-  v: SwipeVector,
-  duration: number,
+  start: Point,
+  holdMs: number,
+  drag?: { to: Point; duration: number },
 ): Promise<void> {
-  await driver
+  let chain = driver
     .action('pointer', { parameters: { pointerType: 'touch' } })
-    .move({ duration: 0, x: v.startX, y: v.startY })
+    .move({ duration: 0, ...start })
     .down({ button: 0 })
-    .pause(50)
-    .move({ duration, x: v.endX, y: v.endY })
-    .up({ button: 0 })
-    .perform();
+    .pause(holdMs);
+  if (drag !== undefined) chain = chain.move({ duration: drag.duration, ...drag.to });
+  await chain.up({ button: 0 }).perform();
+}
+
+function performSwipe(driver: Driver, v: SwipeVector, duration: number): Promise<void> {
+  return touchGesture(driver, { x: v.startX, y: v.startY }, 50, {
+    to: { x: v.endX, y: v.endY },
+    duration,
+  });
 }
